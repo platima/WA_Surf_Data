@@ -37,11 +37,12 @@ FILES / ENDPOINTS (same paths on GitHub Pages and the local server)
     stations.json            {"default": slug, "stations": [{slug, name, lat, lon, approx_location,
                              source_page, has_data, ok, error, chart_time, swell: {height_m, peak_period_s,
                              direction}}]}  north to south, then east
-    healthz.json             {"ok", "updated", "failed": [slugs], "stations": {slug: {ok, error, chart_time}}}
+    healthz.json             {"ok", "updated", "failed": [slugs], "alerts": [messages],
+                             "stations": {slug: {ok, error, chart_time}}}  (alerts: see FAILURE HANDLING)
                              The local server returns HTTP 503 for it while any station failed; a static host
                              always returns 200, so check "ok".
     <slug>/raw.json          {"status": {...}, "data": {...}}
-                  status: ok, last_attempt, last_success, error, etags
+                  status: ok, last_attempt, last_success, error, error_kind ("source", "parse" or null), etags
                   data.current.swell / .sea : height_m, peak_period_s, mean_period_s, direction_deg,
                                               direction, direction_source ("dial" or "history")
                   data.current.total        : height_m, mean_period_s
@@ -62,7 +63,9 @@ FILES / ENDPOINTS (same paths on GitHub Pages and the local server)
 WEB PAGE
     Shows current swell/sea/total and 4-day height, period and direction charts for one station. Reloads
     stations.json and the station's raw.json every 5 minutes. Times in Australia/Perth (WST, UTC+8, no DST).
-    Flags data older than 1.5 h, failed updates and warnings.
+    Flags data older than 1.5 h, failed updates and warnings. When the last update failed because DoT did
+    not serve the charts (error_kind "source"), a warning banner says the data is stale because of a DoT
+    outage, gives the time of the readings shown, and says the page will update once DoT's charts are back.
     Which station, in order:
       1. URL fragment, e.g. .../#rottnest-island (shareable; not stored).
       2. A station picked in the Location list, kept in localStorage "choice".
@@ -98,10 +101,12 @@ REQUIREMENTS AND USAGE
                                                    parse saved GIFs, print JSON, exit (for debugging)
     -v enables debug logging.
 
-    --out options: --attempts (default 3) passes, --attempt-wait (default 60) seconds between passes.
+    --out options: --attempts (default 3) passes, --attempt-wait (default 60) seconds between passes,
+    --alert-hours (default 3, see FAILURE HANDLING).
     Stations are fetched three at a time; a full run of nine takes about 15 s when DoT responds normally.
-    --out exit codes: 0 every station updated or unchanged, 1 any station failed every attempt (files are
-    still written, with the error in that station's raw.json and its last good data kept).
+    --out exit codes: 1 if there is an alert (a station failed to parse, or DoT has not served it for more
+    than --alert-hours), otherwise 0, including short DoT outages. Files are always written, with any error
+    in that station's raw.json and its last good data kept.
 
     The server keeps --site-dir (default site/) updated and serves it; on start it logs browsable URLs.
     With the default --host 0.0.0.0 (all interfaces, not itself browsable) it lists 127.0.0.1 and the
@@ -124,10 +129,10 @@ GITHUB PAGES
         site/                          generated files (see FILES), committed by the workflow
     Each run: install dependencies, run "capenat_waves.py --out site", commit site/ if it changed (this
     keeps history between runs, since runners start clean, and counts as repository activity), then
-    deploy site/ to Pages. Runs with nothing new skip the commit and deploy. If any station fails every
-    attempt, site/ is still committed and deployed so the page shows the error, and the run is then marked
-    failed, so GitHub's default notifications email the repo owner. The workflow also runs on manual
-    dispatch and when the script, requirements or workflow change on main.
+    deploy site/ to Pages. Runs with nothing new skip the commit and deploy. Failed stations are still
+    committed and deployed so the page shows the error. If the script exits 1 (an alert, see FAILURE
+    HANDLING), the run is then marked failed, so GitHub's default notifications email the repo owner. The
+    workflow also runs on manual dispatch and when the script, requirements or workflow change on main.
 
     One-time setup:
       1. Push these files to the main branch of a public repository.
@@ -146,11 +151,11 @@ GITHUB PAGES
       - Auto-disable: GitHub disables scheduled workflows in a public repository after 60 days without
         repository activity. The workflow's own commits are expected to count (inferred, not confirmed);
         if the schedule stops, re-enable it on the Actions tab.
-      - DoT may treat GitHub's cloud IP ranges differently from a home connection (untested until the
-        first run). A block would show as failed runs and errors on the page.
+      - DoT served GitHub's runners normally from the first run (15 Oct 2026). A later block would show as
+        DoT source errors on the page and, after --alert-hours, failed runs.
       - Everything on the site is public, so the attribution under LICENCE must stay on the page.
-      - One failing station marks the whole run failed, so a station that stays broken means an email
-        every half hour until it is fixed or removed from the workflow with --stations.
+      - While an alert lasts, every run fails, so expect an email every half hour until it clears or the
+        station is removed from the workflow with --stations.
       - Repository size grows with every data commit (not measured). Check with "git count-objects -vH"
         on a fresh clone; lowering --history-days in the workflow reduces it.
 
@@ -247,6 +252,17 @@ FAILURE HANDLING
       five evenly spaced rings. A WAVE or WDIR mismatch raises LayoutError: the station's error is reported
       in its raw.json and healthz.json and its last good data is kept rather than replaced with wrong
       numbers. A dial mismatch only drops the dial values (see METHOD).
+    - Each failure is recorded with error_kind. "source": DoT did not serve the station page or a chart
+      (HTTP error, timeout, or the page lacks the chart links); the error names the page or file, e.g.
+      "DoT chart DWN_WAVE.GIF returned HTTP 404 (the DoT page links to a missing file)". "parse": anything
+      else, such as LayoutError, which usually means DoT changed the charts and this script needs updating.
+    - Alerts (healthz.json "alerts", --out exit code 1, failed workflow run and email): any parse failure,
+      or a source failure at a station with no successful update for more than --alert-hours (default 3).
+      Shorter DoT outages only show on the page (see WEB PAGE). Server mode retries every --retry minutes
+      after any failure.
+    - Seen 15 Oct 2026 from about 15:30 WST: every DoT station page (wave and tide) linked to chart files
+      that returned 404, including in a normal browser on DoT's own pages, while DoT's "swells comparative"
+      charts still updated. Nothing in this script was wrong; it recovers on the first run after DoT does.
 
 LIMITS
     - Current heights come from the end of the height chart, not the text printed on the dial (the dial
@@ -282,6 +298,7 @@ LICENCE
 
 import argparse
 import datetime as dt
+import http.client
 import io
 import json
 import logging
@@ -292,6 +309,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
+import urllib.error
 import urllib.request
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -406,6 +424,10 @@ def load_rgb(blob):
 # ---------------------------------------------------------------------------
 # Fetching
 # ---------------------------------------------------------------------------
+class SourceError(RuntimeError):
+    """DoT did not serve the station page or a chart (HTTP error, timeout, missing links). See FAILURE HANDLING."""
+
+
 def http_get(url, timeout=30):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -413,15 +435,26 @@ def http_get(url, timeout=30):
         return r.read(), (parsedate_to_datetime(lm).astimezone(WST) if lm else None), r.headers.get("ETag")
 
 
+def source_get(url, what):
+    """http_get, raising SourceError that names what failed (the station page or a chart file)."""
+    try:
+        return http_get(url)
+    except urllib.error.HTTPError as e:
+        note = " (the DoT page links to a missing file)" if e.code == 404 and what.startswith("DoT chart") else ""
+        raise SourceError(f"{what} returned HTTP {e.code}{note}") from None
+    except (OSError, http.client.HTTPException) as e:  # URLError, timeouts, resets, truncated replies
+        raise SourceError(f"{what} could not be fetched: {getattr(e, 'reason', None) or e}") from None
+
+
 def discover_urls(page_url):
     """Read the page for the current GIF links. DoT's media IDs change between refreshes, so this runs every fetch."""
-    html, _, _ = http_get(page_url)
+    html, _, _ = source_get(page_url, "DoT station page")
     html = html.decode("utf-8", "replace")
     found = {}
     for m in re.finditer(r'(/getmedia/[0-9a-fA-F-]+/[A-Za-z0-9]+_(WAVE|POLD|WDIR)\.GIF)', html):
         found.setdefault(m.group(2), SITE + m.group(1))
     if len(found) != 3:
-        raise RuntimeError(f"could not find all three chart images on {page_url} (found {sorted(found)})")
+        raise SourceError(f"DoT station page does not link all three charts (found {sorted(found) or 'none'})")
     return found
 
 
@@ -771,7 +804,8 @@ class Store:
     def __init__(self, history_path, history_days):
         self.lock = threading.Lock()
         self.data = None
-        self.status = {"ok": False, "last_attempt": None, "last_success": None, "error": "not fetched yet"}
+        self.status = {"ok": False, "last_attempt": None, "last_success": None, "error": "not fetched yet",
+                       "error_kind": None}
         self.etags = {}
         self.history_path = history_path
         self.history_days = history_days
@@ -796,13 +830,13 @@ def fetch_and_parse(store, station):
     name = station["name"]
     try:
         urls = discover_urls(station["page"])  # media IDs rotate, so always read the current links first
-        blobs = {k: http_get(u) for k, u in urls.items()}
+        blobs = {k: source_get(u, "DoT chart " + u.rsplit("/", 1)[1]) for k, u in urls.items()}
 
         etags = {k: b[2] for k, b in blobs.items()}
         if store.data is not None and all(etags[k] and etags[k] == store.etags.get(k) for k in etags):
             log.info("%s: charts unchanged since last fetch", name)
             with store.lock:
-                store.status.update(last_attempt=now.isoformat(), ok=True, error=None)
+                store.status.update(last_attempt=now.isoformat(), ok=True, error=None, error_kind=None)
             return "unchanged"
 
         file_time = blobs["POLD"][1] or blobs["WAVE"][1] or now
@@ -812,7 +846,7 @@ def fetch_and_parse(store, station):
             store.data = data
             store.etags = etags
             store.status.update(ok=True, last_attempt=now.isoformat(), last_success=now.isoformat(), error=None,
-                                etags=etags)
+                                error_kind=None, etags=etags)
             store.merge_history(data["series"])
         c = data["current"]
         log.info("%s: swell %s m %s s %s, sea %s m %s s %s, chart time %s%s", name,
@@ -821,10 +855,13 @@ def fetch_and_parse(store, station):
                  "".join(f"; WARNING {w}" for w in data["warnings"]))
         return "updated"
     except Exception as e:  # noqa: BLE001
-        log.error("%s: update failed: %s: %s", name, type(e).__name__, e)
+        # "source": DoT did not serve the page or a chart; "parse": anything else, e.g. LayoutError.
+        kind = "source" if isinstance(e, SourceError) else "parse"
+        error = str(e) if kind == "source" else f"{type(e).__name__}: {e}"
+        log.error("%s: update failed (%s): %s", name, kind, error)
         log.debug("traceback", exc_info=True)
         with store.lock:
-            store.status.update(ok=False, last_attempt=now.isoformat(), error=f"{type(e).__name__}: {e}")
+            store.status.update(ok=False, last_attempt=now.isoformat(), error=error, error_kind=kind)
         return "failed"
 
 
@@ -867,12 +904,32 @@ def _summary(store, station):
     }
 
 
-def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, workers=3):
+def _alerts(stores, results, alert_hours, now):
+    """Failures worth a failed CI run: any parse error, or a source error once the last success is too old."""
+    out = []
+    for slug, res in results.items():
+        st = stores[slug].status
+        if res != "failed":
+            continue
+        if st.get("error_kind") != "source":
+            out.append(f"{slug}: {st.get('error')}")
+            continue
+        last = st.get("last_success")
+        age_h = (now - dt.datetime.fromisoformat(last)).total_seconds() / 3600 if last else None
+        if age_h is None or age_h > alert_hours:
+            since = f"{age_h:.1f} h" if age_h is not None else "ever"
+            out.append(f"{slug}: no update for {since} ({st.get('error')})")
+    return out
+
+
+def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, workers=3, alert_hours=3.0):
     """
     One update of every station in slugs. Per station, reads the previous raw.json / history.json from
     out_dir/<slug>/ (so state survives between CI runs), fetches, and rewrites that station's files unless
     its charts are unchanged. Failed stations are retried together after attempt_wait seconds.
-    Then writes index.html, stations.json and healthz.json. Returns 0, or 1 if any station failed.
+    Then writes index.html, stations.json and healthz.json.
+    Returns (failed, alerts): the slugs that failed every attempt, and the failures that need attention
+    (see _alerts and FAILURE HANDLING).
     """
     os.makedirs(out_dir, exist_ok=True)
     stores = {slug: _load_store(out_dir, slug, history_days) for slug in slugs}
@@ -904,15 +961,21 @@ def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, worke
         listed.append(_summary(store, st))
     _write_json(os.path.join(out_dir, "stations.json"), {"default": DEFAULT_STATION, "stations": listed})
     failed = sorted(sl for sl, r in results.items() if r == "failed")
+    now = dt.datetime.now(WST)
+    alerts = _alerts(stores, results, alert_hours, now)
     _write_json(os.path.join(out_dir, "healthz.json"), {
-        "ok": not failed, "updated": dt.datetime.now(WST).isoformat(), "failed": failed,
+        "ok": not failed, "updated": now.isoformat(), "failed": failed, "alerts": alerts,
         "stations": {s["slug"]: {"ok": s["ok"], "error": s["error"], "chart_time": s["chart_time"]} for s in listed},
     })
     write_page(out_dir)
-    counts ={r: sum(1 for v in results.values() if v == r) for r in ("updated", "unchanged", "failed")}
+    counts = {r: sum(1 for v in results.values() if v == r) for r in ("updated", "unchanged", "failed")}
     log.info("site %s: %d updated, %d unchanged, %d failed%s", out_dir, counts["updated"], counts["unchanged"],
              counts["failed"], f" ({', '.join(failed)})" if failed else "")
-    return 1 if failed else 0
+    for a in alerts:
+        log.error("alert: %s", a)
+    if failed and not alerts:
+        log.info("failures are DoT source errors with data under %g h old; not alerting", alert_hours)
+    return failed, alerts
 
 
 def next_run(now, minutes):
@@ -927,10 +990,10 @@ def next_run(now, minutes):
 def scheduler(site_dir, slugs, history_days, minutes, retry_min):
     while True:
         try:
-            rc = update_site(site_dir, slugs, history_days, attempts=1)
+            rc = bool(update_site(site_dir, slugs, history_days, attempts=1)[0])  # retry soon after any failure
         except Exception:  # noqa: BLE001
             log.exception("site update crashed")
-            rc = 1
+            rc = True
         now = dt.datetime.now(WST)
         t = next_run(now, minutes)
         if rc:
@@ -1004,9 +1067,9 @@ PAGE = r"""<!doctype html>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--fg:#1d2327;--muted:#66707a;--line:#d9dcdf;--note:#eef3fa;--noteline:#c9d7ea;
---swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
+--warn:#fdf3e1;--warnline:#e8c88f;--swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
 @media (prefers-color-scheme:dark){:root{--bg:#121619;--card:#1b2126;--fg:#e8ecef;--muted:#93a0ab;--line:#2c343b;
---note:#1c2733;--noteline:#2e4257;--swell:#ff6b5c;--sea:#4cc16a;--total:#6f9bf0}}
+--note:#1c2733;--noteline:#2e4257;--warn:#2e2414;--warnline:#6a5323;--swell:#ff6b5c;--sea:#4cc16a;--total:#6f9bf0}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:900px;margin:0 auto;padding:16px}
@@ -1018,7 +1081,8 @@ select,button{font:inherit;font-size:14px;color:var(--fg);background:var(--card)
 border-radius:8px;padding:6px 10px;max-width:100%}
 button{cursor:pointer}button:hover,select:hover{border-color:var(--muted)}
 .banner{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;margin:0 0 12px;font-size:14px}
-.banner[hidden]{display:none}
+.banner[hidden]{display:none}.banner.warn{background:var(--warn);border-color:var(--warnline)}
+.banner .detail{color:var(--muted);font-size:12px;margin-top:4px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;gap:14px;align-items:center}
 .card h2{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -1039,6 +1103,7 @@ a{color:inherit}
 <div class="picker"><label for="loc">Location</label><select id="loc"></select>
 <button id="gps" type="button">Use precise location</button></div>
 <div class="banner" id="banner" hidden></div>
+<div class="banner warn" id="outage" role="status" hidden></div>
 <div class="cards" id="cards"></div>
 <section><h3>Significant wave height (m)</h3><div class="leg" id="leg1"></div><svg class="chart" id="ch"></svg></section>
 <section><h3>Mean period (s)</h3><div class="leg" id="leg2"></div><svg class="chart" id="cp"></svg></section>
@@ -1186,6 +1251,7 @@ async function showStation(slug,info){
   const st=STATIONS.find(s=>s.slug===slug)||{name:slug};
   document.getElementById("rawlink").href=`${slug}/raw.json`;
   document.getElementById("histlink").href=`${slug}/history.json`;
+  const out=document.getElementById("outage");out.hidden=true;
   let j;
   try{j=await getJSON(`${slug}/raw.json`,10000)}catch(e){
     document.getElementById("sub").innerHTML=`<span class="err">Could not load ${esc(slug)}/raw.json: ${esc(e)}</span>`;return}
@@ -1194,9 +1260,14 @@ async function showStation(slug,info){
     document.getElementById("cards").innerHTML="";return}
   const d=j.data,c=d.current,sw=C('--swell'),se=C('--sea'),to=C('--total');
   const t=new Date(d.chart_time),ageH=(Date.now()-t)/3600000;
-  document.getElementById("sub").innerHTML=esc(info.sub)+` · chart time ${t.toLocaleString('en-AU',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'})} WST`+
+  const when=t.toLocaleString('en-AU',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+  // DoT not serving the charts (error_kind "source"): say so plainly, since the cards below are old readings.
+  const dot=!j.status.ok&&j.status.error_kind==="source";
+  out.innerHTML=dot?`<b>Data is stale because of a DoT outage.</b> The Department of Transport website is not serving this buoy's charts at the moment, so these are the last readings received, from ${when} WST${ageH>=1?` (${ageH.toFixed(1)} h ago)`:""}. This page will update automatically once DoT's charts are available again.<div class="detail">${esc(j.status.error)}</div>`:"";
+  out.hidden=!dot;
+  document.getElementById("sub").innerHTML=esc(info.sub)+` · chart time ${when} WST`+
     (ageH>1.5?` · <span class="err">${ageH.toFixed(1)} h old</span>`:"")+
-    (j.status.ok?"":` · <span class="err">last update failed: ${esc(j.status.error)}</span>`)+
+    (j.status.ok||dot?"":` · <span class="err">last update failed: ${esc(j.status.error)}</span>`)+
     ((d.warnings||[]).length?` · <span class="err">${esc(d.warnings.join("; "))}</span>`:"");
   document.getElementById("src").href=d.source_page;
   document.getElementById("acc").textContent=`±${d.chart_axes.m_per_px.toFixed(2)} m, ±${d.chart_axes.s_per_px.toFixed(2)} s on this chart`;
@@ -1323,6 +1394,8 @@ def main():
     ap.add_argument("--retry", type=int, default=5, help="server mode: minutes between retries after a failure")
     ap.add_argument("--attempts", type=int, default=3, help="--out mode: fetch attempts per station")
     ap.add_argument("--attempt-wait", type=int, default=60, help="--out mode: seconds between attempts")
+    ap.add_argument("--alert-hours", type=float, default=3.0,
+                    help="--out mode: exit 1 for DoT source errors only once a station has had no update this long")
     ap.add_argument("--history-days", type=int, default=60)
     ap.add_argument("--page", default=PAGE_URL, help="--once / --files: DoT station page (default Cape Naturaliste)")
     ap.add_argument("--once", action="store_true", help="fetch one station (--page) once, print JSON, exit")
@@ -1350,7 +1423,9 @@ def main():
 
     slugs = parse_station_list(a.stations)
     if a.out:
-        raise SystemExit(update_site(a.out, slugs, a.history_days, max(1, a.attempts), a.attempt_wait))
+        _, alerts = update_site(a.out, slugs, a.history_days, max(1, a.attempts), a.attempt_wait,
+                                alert_hours=a.alert_hours)
+        raise SystemExit(1 if alerts else 0)
 
     minutes = [int(m) for m in a.minutes.split(",") if m.strip()]
     os.makedirs(a.site_dir, exist_ok=True)
