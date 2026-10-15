@@ -2,6 +2,9 @@
 <html lang="en-AU"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WA Wave Buoys</title>
+<link rel="icon" href="favicon.png" sizes="32x32">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--fg:#1d2327;--muted:#66707a;--line:#d9dcdf;--note:#eef3fa;--noteline:#c9d7ea;
 --swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
@@ -13,6 +16,7 @@ main{max-width:900px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin-bottom:12px}
 .picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
 .picker label{font-size:13px;color:var(--muted)}
+#gps{margin-left:auto}@media (max-width:520px){#loc{flex:1 1 auto}}
 select,button{font:inherit;font-size:14px;color:var(--fg);background:var(--card);border:1px solid var(--line);
 border-radius:8px;padding:6px 10px;max-width:100%}
 button{cursor:pointer}button:hover,select:hover{border-color:var(--muted)}
@@ -174,7 +178,7 @@ function fillPicker(sel){
   const el=document.getElementById("loc");
   const opt=(v,t)=>`<option value="${esc(v)}">${esc(t)}</option>`;
   el.innerHTML=opt("auto","Nearest to me (automatic)")+STATIONS.map(s=>{
-    const w=s.swell,t=!s.has_data?" (no data)":w&&w.height_m!=null?` · swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
+    const w=s.swell,t=!s.has_data?" (no data)":w&&w.height_m!=null?` · Swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
     return opt(s.slug,s.name+t)}).join("");
   el.value=sel;
 }
