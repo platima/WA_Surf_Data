@@ -1,4 +1,4 @@
-<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.wa_surf_Data" height="20" />
+<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.wa_surf_data" height="20" />
 
 # WA Surf Data 🏄
 
