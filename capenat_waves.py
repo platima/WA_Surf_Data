@@ -67,7 +67,12 @@ WEB PAGE
     nearest hourly record, with a guide line and markers; on touch it stays until the next tap elsewhere.
     Flags data older than 1.5 h, failed updates and warnings. When the last update failed because DoT did
     not serve the charts (error_kind "source"), a warning banner says the data is stale because of a DoT
-    outage, gives the time of the readings shown, and says the page will update once DoT's charts are back.
+    outage, gives the time of the last readings, and says the page will update once DoT's charts are back.
+    Once the newest reading is more than 3 h old (HIDE_AFTER_H in the page), the summary cards and the
+    Location list show "–" / "no current reading" instead of values, and the banner says so whatever the
+    cause. The charts always end at the current time; a gap of more than 1.5 h after the newest reading is
+    shaded and labelled "No data" (and hovering there says so), and readings older than the chart window
+    (the data's span, about 4 days) scroll off the left.
     Which station, in order:
       1. URL fragment, e.g. .../#rottnest-island (shareable; not stored).
       2. A station picked in the Location list, kept in localStorage "choice".
@@ -265,6 +270,8 @@ FAILURE HANDLING
     - Seen 15 Oct 2026 from about 15:30 WST: every DoT station page (wave and tide) linked to chart files
       that returned 404, including in a normal browser on DoT's own pages, while DoT's "swells comparative"
       charts still updated. Nothing in this script was wrong; it recovers on the first run after DoT does.
+      By the next morning DoT had replaced the charts with "temporarily unavailable" notices; that case is
+      reported as "DoT's page says this station's wave data is temporarily unavailable".
 
 LIMITS
     - Current heights come from the end of the height chart, not the text printed on the dial (the dial
@@ -456,6 +463,9 @@ def discover_urls(page_url):
     for m in re.finditer(r'(/getmedia/[0-9a-fA-F-]+/[A-Za-z0-9]+_(WAVE|POLD|WDIR)\.GIF)', html):
         found.setdefault(m.group(2), SITE + m.group(1))
     if len(found) != 3:
+        # During its 15 Oct 2026 outage DoT replaced the charts with "temporarily unavailable" notices.
+        if not found and re.search(r"temporarily unavailable|currently unavailable", html, re.I):
+            raise SourceError("DoT's page says this station's wave data is temporarily unavailable")
         raise SourceError(f"DoT station page does not link all three charts (found {sorted(found) or 'none'})")
     return found
 
@@ -1136,20 +1146,23 @@ height="20" referrerpolicy="no-referrer"></p>
 const C=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const fmt=(v,d)=>v==null?"–":v.toFixed(d);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const TZ='Australia/Perth',DAY=86400000,OFF=8*3600000,GEO_MAX_AGE=DAY;
+const TZ='Australia/Perth',DAY=86400000,HOUR=3600000,OFF=8*HOUR,GEO_MAX_AGE=DAY;
+const HIDE_AFTER_H=3;  // current values are shown as "–" once the newest reading is older than this
+const fmtT=t=>new Date(t).toLocaleString('en-AU',{timeZone:TZ,weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},
   set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 let STATIONS=[],DEFAULT="cape-naturaliste",CURRENT=null;
 
 function dial(deg,col){
-  if(deg==null)return '<svg class="dial" viewBox="-32 -32 64 64"></svg>';
-  // arrow points the way the waves travel (from 'deg' towards the opposite side)
+  // arrow points the way the waves travel (from 'deg' towards the opposite side); no arrow without a direction
   return `<svg class="dial" viewBox="-32 -32 64 64"><circle r="29" fill="none" stroke="${C('--line')}" stroke-width="2"/>
-  <text y="-19" text-anchor="middle" font-size="9" fill="${C('--muted')}">N</text>
-  <g transform="rotate(${deg})"><line y1="-24" y2="16" stroke="${col}" stroke-width="3"/>
-  <path d="M0 24 L-7 12 L7 12Z" fill="${col}"/></g></svg>`;
+  <text y="-19" text-anchor="middle" font-size="9" fill="${C('--muted')}">N</text>`+(deg==null?"":
+  `<g transform="rotate(${deg})"><line y1="-24" y2="16" stroke="${col}" stroke-width="3"/>
+  <path d="M0 24 L-7 12 L7 12Z" fill="${col}"/></g>`)+"</svg>";
 }
-function card(title,c,col){
+function card(title,c,col,old){
+  if(old)return `<div class="card">${dial(null,col)}<div><h2 style="color:${col}">${title}</h2>
+  <div class="big">–</div><div class="det">No current reading</div></div></div>`;
   const per=c.peak_period_s!=null?`${fmt(c.peak_period_s,1)}<small> s</small>`:"";
   const bits=[];
   if(c.direction)bits.push(`from ${c.direction} (${c.direction_deg}°)`);
@@ -1162,13 +1175,19 @@ function chart(id,series,keys,opt){
   const el=document.getElementById(id);
   const W=Math.max(300,Math.round(el.parentElement.clientWidth-24)),H=opt.h||170,L=34,R=8,T=8,B=22;
   if(!series.length){el.innerHTML="";return}
-  const t0=Date.parse(series[0].time),t1=Date.parse(series[series.length-1].time);
+  // The window ends now, not at the newest reading, so a gap in DoT's data shows as a shaded "No data" stretch.
+  const first=Date.parse(series[0].time),last=Date.parse(series[series.length-1].time);
+  const t1=Math.max(last,Date.now()),t0=t1-Math.max(DAY,last-first);
+  series=series.filter(r=>Date.parse(r.time)>=t0);
   const X=t=>L+(W-L-R)*(t-t0)/Math.max(1,t1-t0);
   let ymax=opt.max,ticks=opt.ticks;
   if(ymax==null){const hi=Math.max(0.5,...series.flatMap(r=>keys.map(k=>r[k[0]]??0)));
     const step=hi<=2?0.5:1;ymax=Math.ceil(hi*1.05/step)*step;ticks=[];for(let v=0;v<=ymax+1e-9;v+=step)ticks.push(v)}
   const Y=v=>T+(H-T-B)*(1-v/ymax);
   let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
+  if(t1-last>1.5*HOUR){const xg=Math.max(L,X(last+HOUR/2));
+    s+=`<rect x="${xg}" y="${T}" width="${W-R-xg}" height="${H-T-B}" fill="${C('--line')}" opacity=".45"/>`;
+    if(W-R-xg>56)s+=`<text x="${(xg+W-R)/2}" y="${T+16}" text-anchor="middle" font-size="11" fill="${C('--muted')}">No data</text>`}
   for(const v of ticks){s+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${C('--line')}"/>
    <text x="${L-5}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="${C('--muted')}">${opt.lab?opt.lab(v):(ymax<=3?v.toFixed(1):v)}</text>`}
   // day boundaries at Perth midnight (UTC+8, no DST), labelled with the day that starts there
@@ -1188,7 +1207,7 @@ function chart(id,series,keys,opt){
   s+=`<g class="hov" visibility="hidden"><line y1="${T}" y2="${H-B}" stroke="${C('--muted')}" stroke-dasharray="3 3"/>`+
     keys.map(([,col])=>`<circle r="4" fill="${col}" stroke="${C('--card')}" stroke-width="1.5"/>`).join("")+"</g>";
   el.outerHTML=s.replace("<svg ",`<svg id="${id}" class="chart" `)+"</svg>";
-  readout(document.getElementById(id),series,keys,opt,{W,L,R,X,Y,t0,t1});
+  if(series.length)readout(document.getElementById(id),series,keys,opt,{W,L,R,X,Y,t0,t1});
 }
 const C16=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 const compass=d=>C16[Math.round((((d%360)+360)%360)/22.5)%16];
@@ -1206,12 +1225,13 @@ function readout(svg,series,keys,opt,g){
     if(sx<g.L-6||sx>g.W-g.R+6){hide();return}
     const t=g.t0+(sx-g.L)/(g.W-g.L-g.R)*(g.t1-g.t0);
     let i=0;for(let j=1;j<times.length;j++)if(Math.abs(times[j]-t)<Math.abs(times[i]-t))i=j;
-    const r=series[i],x=g.X(times[i]);
+    const r=series[i],gap=Math.abs(times[i]-t)>1.5*HOUR,x=gap?sx:g.X(times[i]);
     line.setAttribute("x1",x);line.setAttribute("x2",x);
-    keys.forEach(([k],n)=>{const v=r[k];dots[n].setAttribute("visibility",v==null?"hidden":"inherit");
+    keys.forEach(([k],n)=>{const v=gap?null:r[k];dots[n].setAttribute("visibility",v==null?"hidden":"inherit");
       if(v!=null){dots[n].setAttribute("cx",x);dots[n].setAttribute("cy",g.Y(v))}});
     hov.setAttribute("visibility","visible");
-    tip.innerHTML=`<b>${new Date(times[i]).toLocaleString('en-AU',{timeZone:TZ,weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} WST</b>`+
+    tip.innerHTML=gap?`<b>No data</b><div>Last reading ${fmtT(times[times.length-1])} WST</div>`:
+      `<b>${fmtT(times[i])} WST</b>`+
       keys.map(([k,col,name])=>`<div><i style="background:${col}"></i>${name} ${r[k]==null?"–":opt.val(r[k])}</div>`).join("");
     tip.hidden=false;
     // beside the guide line, flipped to the left near the right edge, kept inside the card
@@ -1290,7 +1310,9 @@ function fillPicker(sel){
   const el=document.getElementById("loc");
   const opt=(v,t)=>`<option value="${esc(v)}">${esc(t)}</option>`;
   el.innerHTML=opt("auto","Nearest to me (automatic)")+STATIONS.map(s=>{
-    const w=s.swell,t=!s.has_data?" (no data)":w&&w.height_m!=null?` · Swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
+    const w=s.swell,old=s.chart_time&&(Date.now()-Date.parse(s.chart_time))/HOUR>HIDE_AFTER_H;
+    const t=!s.has_data?" (no data)":old?" · no current reading":
+      w&&w.height_m!=null?` · Swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
     return opt(s.slug,s.name+t)}).join("");
   el.value=sel;
 }
@@ -1309,20 +1331,23 @@ async function showStation(slug,info){
   if(!j.data){document.getElementById("sub").innerHTML=`<span class="err">No data yet for ${esc(st.name)}: ${esc(j.status.error||"")}</span>`;
     document.getElementById("cards").innerHTML="";return}
   const d=j.data,c=d.current,sw=C('--swell'),se=C('--sea'),to=C('--total');
-  const t=new Date(d.chart_time),ageH=(Date.now()-t)/3600000;
-  const when=t.toLocaleString('en-AU',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
-  // DoT not serving the charts (error_kind "source"): say so plainly, since the cards below are old readings.
+  const t=new Date(d.chart_time),ageH=(Date.now()-t)/HOUR,old=ageH>HIDE_AFTER_H;
+  const when=fmtT(t),ago=ageH>=1?` (${ageH.toFixed(1)} h ago)`:"";
+  // DoT not serving the charts (error_kind "source"), or readings too old to rely on: say so plainly.
   const dot=!j.status.ok&&j.status.error_kind==="source";
-  out.innerHTML=dot?`<b>Data is stale because of a DoT outage.</b> The Department of Transport website is not serving this buoy's charts at the moment, so these are the last readings received, from ${when} WST${ageH>=1?` (${ageH.toFixed(1)} h ago)`:""}. This page will update automatically once DoT's charts are available again.<div class="detail">${esc(j.status.error)}</div>`:"";
-  out.hidden=!dot;
+  const last=old?` Current values are hidden so they are not mistaken for current conditions; the last readings, from ${when} WST${ago}, are still in the charts.`:
+    ` The values below are the last readings received, from ${when} WST${ago}.`;
+  out.innerHTML=dot?`<b>Data is stale because of a DoT outage.</b> The Department of Transport website is not serving this buoy's charts at the moment.${last} This page will update automatically once DoT's charts are available again.<div class="detail">${esc(j.status.error)}</div>`:
+    old?`<b>Data is stale.</b>${last}`:"";
+  out.hidden=!(dot||old);
   document.getElementById("sub").innerHTML=esc(info.sub)+` · chart time ${when} WST`+
     (ageH>1.5?` · <span class="err">${ageH.toFixed(1)} h old</span>`:"")+
     (j.status.ok||dot?"":` · <span class="err">last update failed: ${esc(j.status.error)}</span>`)+
     ((d.warnings||[]).length?` · <span class="err">${esc(d.warnings.join("; "))}</span>`:"");
   document.getElementById("src").href=d.source_page;
   document.getElementById("acc").textContent=`±${d.chart_axes.m_per_px.toFixed(2)} m, ±${d.chart_axes.s_per_px.toFixed(2)} s on this chart`;
-  document.getElementById("cards").innerHTML=card("Swell",c.swell,sw)+card("Sea (wind waves)",c.sea,se)+
-    card("Total",{height_m:c.total.height_m,mean_period_s:c.total.mean_period_s},to);
+  document.getElementById("cards").innerHTML=card("Swell",c.swell,sw,old)+card("Sea (wind waves)",c.sea,se,old)+
+    card("Total",{height_m:c.total.height_m,mean_period_s:c.total.mean_period_s},to,old);
   const S=d.series,ks=[["Swell",sw],["Sea",se]],kt=[...ks,["Total",to]];
   legend("leg1",kt);legend("leg2",kt);legend("leg3",ks);
   const fm=v=>`${v.toFixed(2)} m`,fs=v=>`${v.toFixed(1)} s`,fd=v=>`${compass(v)} (${Math.round(v)}°)`;
