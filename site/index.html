@@ -7,9 +7,9 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--fg:#1d2327;--muted:#66707a;--line:#d9dcdf;--note:#eef3fa;--noteline:#c9d7ea;
---swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
+--warn:#fdf3e1;--warnline:#e8c88f;--swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
 @media (prefers-color-scheme:dark){:root{--bg:#121619;--card:#1b2126;--fg:#e8ecef;--muted:#93a0ab;--line:#2c343b;
---note:#1c2733;--noteline:#2e4257;--swell:#ff6b5c;--sea:#4cc16a;--total:#6f9bf0}}
+--note:#1c2733;--noteline:#2e4257;--warn:#2e2414;--warnline:#6a5323;--swell:#ff6b5c;--sea:#4cc16a;--total:#6f9bf0}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:900px;margin:0 auto;padding:16px}
@@ -21,7 +21,8 @@ select,button{font:inherit;font-size:14px;color:var(--fg);background:var(--card)
 border-radius:8px;padding:6px 10px;max-width:100%}
 button{cursor:pointer}button:hover,select:hover{border-color:var(--muted)}
 .banner{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;margin:0 0 12px;font-size:14px}
-.banner[hidden]{display:none}
+.banner[hidden]{display:none}.banner.warn{background:var(--warn);border-color:var(--warnline)}
+.banner .detail{color:var(--muted);font-size:12px;margin-top:4px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;gap:14px;align-items:center}
 .card h2{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -42,6 +43,7 @@ a{color:inherit}
 <div class="picker"><label for="loc">Location</label><select id="loc"></select>
 <button id="gps" type="button">Use precise location</button></div>
 <div class="banner" id="banner" hidden></div>
+<div class="banner warn" id="outage" role="status" hidden></div>
 <div class="cards" id="cards"></div>
 <section><h3>Significant wave height (m)</h3><div class="leg" id="leg1"></div><svg class="chart" id="ch"></svg></section>
 <section><h3>Mean period (s)</h3><div class="leg" id="leg2"></div><svg class="chart" id="cp"></svg></section>
@@ -189,6 +191,7 @@ async function showStation(slug,info){
   const st=STATIONS.find(s=>s.slug===slug)||{name:slug};
   document.getElementById("rawlink").href=`${slug}/raw.json`;
   document.getElementById("histlink").href=`${slug}/history.json`;
+  const out=document.getElementById("outage");out.hidden=true;
   let j;
   try{j=await getJSON(`${slug}/raw.json`,10000)}catch(e){
     document.getElementById("sub").innerHTML=`<span class="err">Could not load ${esc(slug)}/raw.json: ${esc(e)}</span>`;return}
@@ -197,9 +200,14 @@ async function showStation(slug,info){
     document.getElementById("cards").innerHTML="";return}
   const d=j.data,c=d.current,sw=C('--swell'),se=C('--sea'),to=C('--total');
   const t=new Date(d.chart_time),ageH=(Date.now()-t)/3600000;
-  document.getElementById("sub").innerHTML=esc(info.sub)+` · chart time ${t.toLocaleString('en-AU',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'})} WST`+
+  const when=t.toLocaleString('en-AU',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+  // DoT not serving the charts (error_kind "source"): say so plainly, since the cards below are old readings.
+  const dot=!j.status.ok&&j.status.error_kind==="source";
+  out.innerHTML=dot?`<b>Data is stale because of a DoT outage.</b> The Department of Transport website is not serving this buoy's charts at the moment, so these are the last readings received, from ${when} WST${ageH>=1?` (${ageH.toFixed(1)} h ago)`:""}. This page will update automatically once DoT's charts are available again.<div class="detail">${esc(j.status.error)}</div>`:"";
+  out.hidden=!dot;
+  document.getElementById("sub").innerHTML=esc(info.sub)+` · chart time ${when} WST`+
     (ageH>1.5?` · <span class="err">${ageH.toFixed(1)} h old</span>`:"")+
-    (j.status.ok?"":` · <span class="err">last update failed: ${esc(j.status.error)}</span>`)+
+    (j.status.ok||dot?"":` · <span class="err">last update failed: ${esc(j.status.error)}</span>`)+
     ((d.warnings||[]).length?` · <span class="err">${esc(d.warnings.join("; "))}</span>`:"");
   document.getElementById("src").href=d.source_page;
   document.getElementById("acc").textContent=`±${d.chart_axes.m_per_px.toFixed(2)} m, ±${d.chart_axes.s_per_px.toFixed(2)} s on this chart`;
