@@ -91,9 +91,10 @@ WEB PAGE
     services the visitor's IP address; the footer says so. GeoJS states CORS support and "no rate limits
     (yet)" (geojs.io, checked 15 Oct 2026). ipwho.is terms were not checked (its site did not load).
     All localStorage access is wrapped so the page still works when storage is blocked.
-    The footer carries the source data attribution (see LICENCE) and a visitor counter: an image from
-    visitor-badge.laobi.icu (page_id platima.wa_surf_data_live), loaded without a referrer. Loading it sends
-    that service the visitor's IP address; the footer says so.
+    The footer carries the source data attribution (see LICENCE), then a row with a "Support this project"
+    button (github.com/sponsors/platima), a link to the GitHub repository and a visitor counter: an image
+    from visitor-badge.laobi.icu (page_id platima.wa_surf_data_live), loaded without a referrer. Loading it
+    sends that service the visitor's IP address; the footer says so.
 
 REQUIREMENTS AND USAGE
     Python 3.9+, Pillow, numpy:  pip install pillow numpy
@@ -1112,6 +1113,10 @@ padding:6px 8px;font-size:12px;line-height:1.5;white-space:nowrap;font-variant-n
 .leg span{margin-right:12px;font-size:12px;color:var(--muted)}.leg i{display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle}
 .err{color:var(--swell);font-size:13px}
 footer{color:var(--muted);font-size:12px;margin:14px 0}footer p{margin:0 0 6px}
+.links{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-top:12px}
+.support{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--line);border-radius:999px;
+background:var(--card);color:var(--fg);font-size:13px;font-weight:600;text-decoration:none}
+.support:hover{border-color:var(--muted)}.support span{color:var(--swell)}
 a{color:inherit}
 </style></head><body><main>
 <h1 id="title">WA wave buoys</h1>
@@ -1138,8 +1143,11 @@ and accepts no liability for any loss arising from its use.</p>
 or from your device if you press "Use precise location". Your choice and that estimate are kept only in
 this browser. The visitor counter below is an image from visitor-badge.laobi.icu, which receives your IP
 address when it loads.</p>
-<p><img src="https://visitor-badge.laobi.icu/badge?page_id=platima.wa_surf_data_live" alt="Visitor count"
-height="20" referrerpolicy="no-referrer"></p>
+<div class="links">
+<a class="support" href="https://github.com/sponsors/platima" rel="noopener"><span aria-hidden="true">♥</span> Support this project</a>
+<a href="https://github.com/platima/WA_Surf_Data" rel="noopener">Source code on GitHub</a>
+<img src="https://visitor-badge.laobi.icu/badge?page_id=platima.wa_surf_data_live" alt="Visitor count" height="20"
+referrerpolicy="no-referrer"></div>
 </footer>
 </main>
 <script>
