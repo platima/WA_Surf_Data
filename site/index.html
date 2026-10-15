@@ -30,9 +30,13 @@ button{cursor:pointer}button:hover,select:hover{border-color:var(--muted)}
 .big small{font-size:16px;font-weight:500;color:var(--muted)}
 .det{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
 .dial{flex:0 0 64px;height:64px}
-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 12px 4px;margin-top:12px}
+section{position:relative;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 12px 4px;margin-top:12px}
 section h3{margin:0 0 6px;font-size:14px}
-svg.chart{width:100%;height:auto;display:block}
+svg.chart{width:100%;height:auto;display:block;touch-action:pan-y;cursor:crosshair}
+.tip{position:absolute;z-index:2;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:6px 8px;font-size:12px;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.tip[hidden]{display:none}.tip b{display:block;font-weight:600}
+.tip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
 .leg span{margin-right:12px;font-size:12px;color:var(--muted)}.leg i{display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle}
 .err{color:var(--swell);font-size:13px}
 footer{color:var(--muted);font-size:12px;margin:14px 0}footer p{margin:0 0 6px}
@@ -118,8 +122,52 @@ function chart(id,series,keys,opt){
       p+=(pen?"L":"M")+X(Date.parse(r.time)).toFixed(1)+" "+Y(v).toFixed(1)+" ";pen=true}
     s+=`<path d="${p}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`;
   }
+  // hover readout: guide line and one marker per series, positioned by readout()
+  s+=`<g class="hov" visibility="hidden"><line y1="${T}" y2="${H-B}" stroke="${C('--muted')}" stroke-dasharray="3 3"/>`+
+    keys.map(([,col])=>`<circle r="4" fill="${col}" stroke="${C('--card')}" stroke-width="1.5"/>`).join("")+"</g>";
   el.outerHTML=s.replace("<svg ",`<svg id="${id}" class="chart" `)+"</svg>";
+  readout(document.getElementById(id),series,keys,opt,{W,L,R,X,Y,t0,t1});
 }
+const C16=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+const compass=d=>C16[Math.round((((d%360)+360)%360)/22.5)%16];
+// Hover (mouse) or tap and drag (touch) on a chart: the nearest hourly record's time (WST) and values.
+function readout(svg,series,keys,opt,g){
+  const sec=svg.parentElement;
+  let tip=sec.querySelector(".tip");
+  if(!tip){tip=document.createElement("div");tip.className="tip";sec.appendChild(tip)}
+  tip.hidden=true;
+  const hov=svg.querySelector(".hov"),line=hov.querySelector("line"),dots=[...hov.querySelectorAll("circle")];
+  const times=series.map(r=>Date.parse(r.time));
+  const hide=()=>{hov.setAttribute("visibility","hidden");tip.hidden=true};
+  const show=e=>{
+    const box=svg.getBoundingClientRect(),sx=(e.clientX-box.left)*g.W/box.width;
+    if(sx<g.L-6||sx>g.W-g.R+6){hide();return}
+    const t=g.t0+(sx-g.L)/(g.W-g.L-g.R)*(g.t1-g.t0);
+    let i=0;for(let j=1;j<times.length;j++)if(Math.abs(times[j]-t)<Math.abs(times[i]-t))i=j;
+    const r=series[i],x=g.X(times[i]);
+    line.setAttribute("x1",x);line.setAttribute("x2",x);
+    keys.forEach(([k],n)=>{const v=r[k];dots[n].setAttribute("visibility",v==null?"hidden":"inherit");
+      if(v!=null){dots[n].setAttribute("cx",x);dots[n].setAttribute("cy",g.Y(v))}});
+    hov.setAttribute("visibility","visible");
+    tip.innerHTML=`<b>${new Date(times[i]).toLocaleString('en-AU',{timeZone:TZ,weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} WST</b>`+
+      keys.map(([k,col,name])=>`<div><i style="background:${col}"></i>${name} ${r[k]==null?"–":opt.val(r[k])}</div>`).join("");
+    tip.hidden=false;
+    // beside the guide line, flipped to the left near the right edge, kept inside the card
+    const sb=sec.getBoundingClientRect(),px=box.left-sb.left+x*box.width/g.W,w=tip.offsetWidth;
+    tip.style.left=Math.max(4,Math.min(sb.width-w-4,px+12+w>sb.width-4?px-12-w:px+12))+"px";
+    tip.style.top=(box.top-sb.top+4)+"px";
+  };
+  svg.addEventListener("pointermove",show);
+  svg.addEventListener("pointerdown",show);
+  // a touch ends with pointerleave, so on touch the readout stays until the next tap elsewhere
+  svg.addEventListener("pointerleave",e=>{if(e.pointerType!=="touch")hide()});
+}
+document.addEventListener("pointerdown",e=>{
+  const here=e.target.closest&&e.target.closest("section");
+  for(const sec of document.querySelectorAll("section"))if(sec!==here){
+    const tip=sec.querySelector(".tip"),hov=sec.querySelector(".hov");
+    if(tip)tip.hidden=true;if(hov)hov.setAttribute("visibility","hidden")}
+});
 function legend(id,items){document.getElementById(id).innerHTML=items.map(([n,c])=>`<span><i style="background:${c}"></i>${n}</span>`).join("")}
 
 // ---- location ----
@@ -215,11 +263,12 @@ async function showStation(slug,info){
     card("Total",{height_m:c.total.height_m,mean_period_s:c.total.mean_period_s},to);
   const S=d.series,ks=[["Swell",sw],["Sea",se]],kt=[...ks,["Total",to]];
   legend("leg1",kt);legend("leg2",kt);legend("leg3",ks);
-  chart("ch",S,[["swell_hs_m",sw],["sea_hs_m",se],["total_hs_m",to]],{});
+  const fm=v=>`${v.toFixed(2)} m`,fs=v=>`${v.toFixed(1)} s`,fd=v=>`${compass(v)} (${Math.round(v)}°)`;
+  chart("ch",S,[["swell_hs_m",sw,"Swell"],["sea_hs_m",se,"Sea"],["total_hs_m",to,"Total"]],{val:fm});
   const pmax=Math.max(16,Math.ceil(Math.max(...S.flatMap(r=>[r.swell_tm_s||0,r.total_tm_s||0]))/4)*4);
-  chart("cp",S,[["swell_tm_s",sw],["sea_tm_s",se],["total_tm_s",to]],{max:pmax,ticks:Array.from({length:pmax/4+1},(_,i)=>i*4),lab:v=>v});
+  chart("cp",S,[["swell_tm_s",sw,"Swell"],["sea_tm_s",se,"Sea"],["total_tm_s",to,"Total"]],{val:fs,max:pmax,ticks:Array.from({length:pmax/4+1},(_,i)=>i*4),lab:v=>v});
   const nm={0:"N",90:"E",180:"S",270:"W",360:"N"};
-  chart("cd",S,[["swell_dir_deg",sw],["sea_dir_deg",se]],{max:360,dots:true,h:190,ticks:[0,90,180,270,360],lab:v=>nm[v]});
+  chart("cd",S,[["swell_dir_deg",sw,"Swell"],["sea_dir_deg",se,"Sea"]],{val:fd,max:360,dots:true,h:190,ticks:[0,90,180,270,360],lab:v=>nm[v]});
 }
 async function refresh(){
   try{const j=await getJSON("stations.json",10000);STATIONS=j.stations;DEFAULT=j.default||DEFAULT}
