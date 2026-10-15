@@ -30,6 +30,10 @@ SOURCE
 
 FILES / ENDPOINTS (same paths on GitHub Pages and the local server)
     index.html               the web page (see WEB PAGE)
+    favicon.svg, favicon.png site icon (SVG, plus a 32 px PNG for browsers without SVG icon support)
+    apple-touch-icon.png     180 px icon for iOS home screens (square; iOS rounds the corners)
+                             The icons are drawn by the script (icon_svg, icon_png) and, like index.html,
+                             rewritten on every update with identical bytes unless the code changes.
     stations.json            {"default": slug, "stations": [{slug, name, lat, lon, approx_location,
                              source_page, has_data, ok, error, chart_time, swell: {height_m, peak_period_s,
                              direction}}]}  north to south, then east
@@ -285,7 +289,7 @@ from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 log = logging.getLogger("capenat")
 
@@ -895,9 +899,8 @@ def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, worke
         "ok": not failed, "updated": dt.datetime.now(WST).isoformat(), "failed": failed,
         "stations": {s["slug"]: {"ok": s["ok"], "error": s["error"], "chart_time": s["chart_time"]} for s in listed},
     })
-    with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
-        f.write(PAGE)
-    counts = {r: sum(1 for v in results.values() if v == r) for r in ("updated", "unchanged", "failed")}
+    write_page(out_dir)
+    counts ={r: sum(1 for v in results.values() if v == r) for r in ("updated", "unchanged", "failed")}
     log.info("site %s: %d updated, %d unchanged, %d failed%s", out_dir, counts["updated"], counts["unchanged"],
              counts["failed"], f" ({', '.join(failed)})" if failed else "")
     return 1 if failed else 0
@@ -929,10 +932,67 @@ def scheduler(site_dir, slugs, history_days, minutes, retry_min):
 # ---------------------------------------------------------------------------
 # Web page
 # ---------------------------------------------------------------------------
+# Site icon: two white waves on the chart "total" blue, on a 64-unit grid. The SVG and the PNGs are drawn from
+# the same points so they match. The lower wave is white blended 60% over the blue (no transparency needed).
+ICON_WAVES = ((25, 1.0), (43, 0.6))  # (centre row, white blend)
+ICON_STROKE = 7
+
+
+def _icon_wave(y0, n=24):
+    """Points of one wave: one and a half sine cycles from x 10 to 54, amplitude 6."""
+    return [(10 + 44 * i / n, y0 - 6 * math.sin(3 * math.pi * i / n)) for i in range(n + 1)]
+
+
+def _icon_colour(blend):
+    return tuple(round(c + (255 - c) * blend) for c in TOTAL_RGB)
+
+
+def icon_svg():
+    lines = "".join(
+        '<polyline stroke="#%02x%02x%02x" points="%s"/>'
+        % (*_icon_colour(blend), " ".join(f"{x:.1f},{y:.1f}" for x, y in _icon_wave(y0)))
+        for y0, blend in ICON_WAVES)
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+            '<rect width="64" height="64" rx="14" fill="#%02x%02x%02x"/>' % TOTAL_RGB
+            + f'<g fill="none" stroke-width="{ICON_STROKE}" stroke-linecap="round" stroke-linejoin="round">'
+            + lines + "</g></svg>\n")
+
+
+def icon_png(size, rounded=True):
+    """Draw the icon at 16x and downsample, since ImageDraw does not anti-alias."""
+    big = size * 16
+    k = big / 64
+    im = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((0, 0, big - 1, big - 1), radius=14 * k if rounded else 0, fill=TOTAL_RGB)
+    r = ICON_STROKE * k / 2
+    for y0, blend in ICON_WAVES:
+        pts = [(x * k, y * k) for x, y in _icon_wave(y0)]
+        col = _icon_colour(blend)
+        d.line(pts, fill=col, width=round(2 * r), joint="curve")
+        for x, y in (pts[0], pts[-1]):
+            d.ellipse((x - r, y - r, x + r, y + r), fill=col)
+    return im.resize((size, size), Image.LANCZOS)
+
+
+def write_page(out_dir):
+    """index.html and the icons; rewritten every update (identical bytes unless the code changed)."""
+    with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
+        f.write(PAGE)
+    with open(os.path.join(out_dir, "favicon.svg"), "w", encoding="utf-8") as f:
+        f.write(icon_svg())
+    icon_png(32).save(os.path.join(out_dir, "favicon.png"))
+    # iOS masks the corners itself and expects no transparency.
+    icon_png(180, rounded=False).convert("RGB").save(os.path.join(out_dir, "apple-touch-icon.png"))
+
+
 PAGE = r"""<!doctype html>
 <html lang="en-AU"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WA Wave Buoys</title>
+<link rel="icon" href="favicon.png" sizes="32x32">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--fg:#1d2327;--muted:#66707a;--line:#d9dcdf;--note:#eef3fa;--noteline:#c9d7ea;
 --swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
@@ -1188,7 +1248,8 @@ def browse_urls(host, port):
     return out
 
 
-CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".json": "application/json"}
+CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml",
+                 ".png": "image/png"}
 
 
 def make_handler(site_dir):

@@ -15,6 +15,7 @@ Visitors outside WA see Cape Naturaliste, with a banner explaining why. Any stat
 ## Files
 
 - `index.html`: the page
+- `favicon.svg`, `favicon.png`, `apple-touch-icon.png`: the site icon, drawn by the script
 - `stations.json`: the station list, with each station's latest swell
 - `<station>/raw.json`: current values and a 4-day hourly series
 - `<station>/history.json`: hourly records kept for 60 days
