@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en-AU"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WA Wave Buoys</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--fg:#1d2327;--muted:#66707a;--line:#d9dcdf;--note:#eef3fa;--noteline:#c9d7ea;
+--swell:#d33a2c;--sea:#1f8a3a;--total:#2d5aaf}
+@media (prefers-color-scheme:dark){:root{--bg:#121619;--card:#1b2126;--fg:#e8ecef;--muted:#93a0ab;--line:#2c343b;
+--note:#1c2733;--noteline:#2e4257;--swell:#ff6b5c;--sea:#4cc16a;--total:#6f9bf0}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
+font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:900px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin-bottom:12px}
+.picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+.picker label{font-size:13px;color:var(--muted)}
+select,button{font:inherit;font-size:14px;color:var(--fg);background:var(--card);border:1px solid var(--line);
+border-radius:8px;padding:6px 10px;max-width:100%}
+button{cursor:pointer}button:hover,select:hover{border-color:var(--muted)}
+.banner{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;margin:0 0 12px;font-size:14px}
+.banner[hidden]{display:none}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;gap:14px;align-items:center}
+.card h2{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.big{font-size:30px;font-weight:650;font-variant-numeric:tabular-nums}
+.big small{font-size:16px;font-weight:500;color:var(--muted)}
+.det{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.dial{flex:0 0 64px;height:64px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 12px 4px;margin-top:12px}
+section h3{margin:0 0 6px;font-size:14px}
+svg.chart{width:100%;height:auto;display:block}
+.leg span{margin-right:12px;font-size:12px;color:var(--muted)}.leg i{display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle}
+.err{color:var(--swell);font-size:13px}
+footer{color:var(--muted);font-size:12px;margin:14px 0}footer p{margin:0 0 6px}
+a{color:inherit}
+</style></head><body><main>
+<h1 id="title">WA wave buoys</h1>
+<div class="sub" id="sub">Loading…</div>
+<div class="picker"><label for="loc">Location</label><select id="loc"></select>
+<button id="gps" type="button">Use precise location</button></div>
+<div class="banner" id="banner" hidden></div>
+<div class="cards" id="cards"></div>
+<section><h3>Significant wave height (m)</h3><div class="leg" id="leg1"></div><svg class="chart" id="ch"></svg></section>
+<section><h3>Mean period (s)</h3><div class="leg" id="leg2"></div><svg class="chart" id="cp"></svg></section>
+<section><h3>Direction from (°)</h3><div class="leg" id="leg3"></div><svg class="chart" id="cd"></svg></section>
+<footer>
+<p>Read from WA Department of Transport chart images by pixel analysis. Accuracy is about one chart pixel
+(<span id="acc">see raw.json</span>), direction about ±2°. Directions per the DoT charts (labelled magnetic).
+Source: <a id="src" href="#">transport.wa.gov.au</a>. Data: <a id="rawlink" href="#">raw.json</a>,
+<a id="histlink" href="#">history.json</a>, <a href="stations.json">stations.json</a>.</p>
+<p>"Nearest to me" estimates your location from your IP address via get.geojs.io (ipwho.is as a fallback),
+or from your device if you press "Use precise location". Your choice and that estimate are kept only in
+this browser.</p>
+</footer>
+</main>
+<script>
+const C=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt=(v,d)=>v==null?"–":v.toFixed(d);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const TZ='Australia/Perth',DAY=86400000,OFF=8*3600000,GEO_MAX_AGE=DAY;
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let STATIONS=[],DEFAULT="cape-naturaliste",CURRENT=null;
+
+function dial(deg,col){
+  if(deg==null)return '<svg class="dial" viewBox="-32 -32 64 64"></svg>';
+  // arrow points the way the waves travel (from 'deg' towards the opposite side)
+  return `<svg class="dial" viewBox="-32 -32 64 64"><circle r="29" fill="none" stroke="${C('--line')}" stroke-width="2"/>
+  <text y="-19" text-anchor="middle" font-size="9" fill="${C('--muted')}">N</text>
+  <g transform="rotate(${deg})"><line y1="-24" y2="16" stroke="${col}" stroke-width="3"/>
+  <path d="M0 24 L-7 12 L7 12Z" fill="${col}"/></g></svg>`;
+}
+function card(title,c,col){
+  const per=c.peak_period_s!=null?`${fmt(c.peak_period_s,1)}<small> s</small>`:"";
+  const bits=[];
+  if(c.direction)bits.push(`from ${c.direction} (${c.direction_deg}°)`);
+  if(c.mean_period_s!=null)bits.push(`mean ${fmt(c.mean_period_s,1)} s`);
+  return `<div class="card">${dial(c.direction_deg,col)}<div><h2 style="color:${col}">${title}</h2>
+  <div class="big">${fmt(c.height_m,1)}<small> m</small> ${per}</div>
+  <div class="det">${bits.join(" · ")}</div></div></div>`;
+}
+function chart(id,series,keys,opt){
+  const el=document.getElementById(id);
+  const W=Math.max(300,Math.round(el.parentElement.clientWidth-24)),H=opt.h||170,L=34,R=8,T=8,B=22;
+  if(!series.length){el.innerHTML="";return}
+  const t0=Date.parse(series[0].time),t1=Date.parse(series[series.length-1].time);
+  const X=t=>L+(W-L-R)*(t-t0)/Math.max(1,t1-t0);
+  let ymax=opt.max,ticks=opt.ticks;
+  if(ymax==null){const hi=Math.max(0.5,...series.flatMap(r=>keys.map(k=>r[k[0]]??0)));
+    const step=hi<=2?0.5:1;ymax=Math.ceil(hi*1.05/step)*step;ticks=[];for(let v=0;v<=ymax+1e-9;v+=step)ticks.push(v)}
+  const Y=v=>T+(H-T-B)*(1-v/ymax);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
+  for(const v of ticks){s+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${C('--line')}"/>
+   <text x="${L-5}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="${C('--muted')}">${opt.lab?opt.lab(v):(ymax<=3?v.toFixed(1):v)}</text>`}
+  // day boundaries at Perth midnight (UTC+8, no DST), labelled with the day that starts there
+  const short=W<560;
+  for(let d=Math.ceil((t0+OFF)/DAY)*DAY-OFF;d<=t1;d+=DAY){const x=X(d);
+   s+=`<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="${C('--line')}"/>`;
+   if(x<W-R-(short?34:70))s+=`<text x="${x+3}" y="${H-6}" font-size="11" fill="${C('--muted')}">${new Date(d).toLocaleDateString('en-AU',
+     short?{timeZone:TZ,weekday:'short'}:{timeZone:TZ,weekday:'short',day:'numeric',month:'short'})}</text>`}
+  for(const [k,col] of keys){
+    if(opt.dots){for(const r of series)if(r[k]!=null)s+=`<circle cx="${X(Date.parse(r.time))}" cy="${Y(r[k])}" r="2.6" fill="${col}"/>`;continue}
+    let p="",pen=false;
+    for(const r of series){const v=r[k];if(v==null){pen=false;continue}
+      p+=(pen?"L":"M")+X(Date.parse(r.time)).toFixed(1)+" "+Y(v).toFixed(1)+" ";pen=true}
+    s+=`<path d="${p}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`;
+  }
+  el.outerHTML=s.replace("<svg ",`<svg id="${id}" class="chart" `)+"</svg>";
+}
+function legend(id,items){document.getElementById(id).innerHTML=items.map(([n,c])=>`<span><i style="background:${c}"></i>${n}</span>`).join("")}
+
+// ---- location ----
+function km(a,b,c,d){const r=Math.PI/180,x=Math.sin((c-a)*r/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin((d-b)*r/2)**2;return 12742*Math.asin(Math.sqrt(x))}
+function inWA(g){
+  if(g.src==="gps")return g.lat<-13&&g.lat>-36&&g.lon>112&&g.lon<129;
+  if(g.cc!=="AU")return false;
+  if(g.region)return /western australia/i.test(g.region);
+  return g.lon<129;  // WA's eastern border is the 129th meridian
+}
+async function getJSON(url,ms){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{const r=await fetch(url,{signal:c.signal,cache:"no-store"});if(!r.ok)throw new Error(r.status);return await r.json()}
+  finally{clearTimeout(t)}
+}
+async function ipGeo(){
+  const cached=store.get("geo");
+  if(cached&&Date.now()-cached.t<GEO_MAX_AGE)return cached;
+  let g=null;
+  try{const j=await getJSON("https://get.geojs.io/v1/ip/geo.json",4000);
+    if(j.latitude)g={lat:+j.latitude,lon:+j.longitude,cc:j.country_code,region:j.region||"",src:"ip"}}catch(e){}
+  if(!g)try{const j=await getJSON("https://ipwho.is/",4000);
+    if(j.success!==false&&j.latitude!=null)g={lat:+j.latitude,lon:+j.longitude,cc:j.country_code,region:j.region||"",src:"ip"}}catch(e){}
+  if(g){g.t=Date.now();store.set("geo",g)}
+  return g;
+}
+function nearest(g){
+  let best=null;
+  for(const s of STATIONS){if(!s.has_data||s.lat==null)continue;
+    const d=km(g.lat,g.lon,s.lat,s.lon);if(!best||d<best.d)best={s,d}}
+  return best;
+}
+function setBanner(html){const b=document.getElementById("banner");b.innerHTML=html||"";b.hidden=!html}
+
+async function resolveStation(){
+  const hash=decodeURIComponent(location.hash.slice(1));
+  if(STATIONS.some(s=>s.slug===hash))return {slug:hash,why:"link"};
+  const choice=store.get("choice")||"auto";
+  if(choice!=="auto"&&STATIONS.some(s=>s.slug===choice))return {slug:choice,why:"chosen"};
+  const g=await ipGeo();
+  if(!g)return {slug:DEFAULT,why:"nogeo"};
+  if(!inWA(g))return {slug:DEFAULT,why:"outside",g};
+  const n=nearest(g);
+  return n?{slug:n.s.slug,why:"nearest",g,d:n.d}:{slug:DEFAULT,why:"nogeo"};
+}
+function explain(r){
+  const name=(STATIONS.find(s=>s.slug===r.slug)||{}).name||r.slug;
+  if(r.why==="nearest")return {sub:`Nearest buoy to you, about ${Math.round(r.d)} km away (${r.g.src==="gps"?"device location":"estimated from your IP address"})`,
+    banner:r.g.src==="ip"?`Showing <b>${esc(name)}</b>, the nearest buoy to your approximate location. IP-based locations can be off by a long way, especially on mobile data; use <b>Use precise location</b> or pick a location if this is wrong.`:""};
+  if(r.why==="outside")return {sub:"Default location",
+    banner:`You appear to be outside Western Australia, so this shows <b>${esc(name)}</b>. Pick another location above if you like.`};
+  if(r.why==="nogeo")return {sub:"Default location",
+    banner:`Couldn't estimate your location, so this shows <b>${esc(name)}</b>. Pick another location above.`};
+  if(r.why==="link")return {sub:"Location from the page link",banner:""};
+  return {sub:"Your chosen location",banner:""};
+}
+function fillPicker(sel){
+  const el=document.getElementById("loc");
+  const opt=(v,t)=>`<option value="${esc(v)}">${esc(t)}</option>`;
+  el.innerHTML=opt("auto","Nearest to me (automatic)")+STATIONS.map(s=>{
+    const w=s.swell,t=!s.has_data?" (no data)":w&&w.height_m!=null?` · swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
+    return opt(s.slug,s.name+t)}).join("");
+  el.value=sel;
+}
+
+// ---- data ----
+async function showStation(slug,info){
+  CURRENT=slug;
+  const st=STATIONS.find(s=>s.slug===slug)||{name:slug};
+  document.getElementById("rawlink").href=`${slug}/raw.json`;
+  document.getElementById("histlink").href=`${slug}/history.json`;
+  let j;
+  try{j=await getJSON(`${slug}/raw.json`,10000)}catch(e){
+    document.getElementById("sub").innerHTML=`<span class="err">Could not load ${esc(slug)}/raw.json: ${esc(e)}</span>`;return}
+  const title=document.getElementById("title");title.textContent=`${st.name} wave buoy`;document.title=`${st.name} Swell`;
+  if(!j.data){document.getElementById("sub").innerHTML=`<span class="err">No data yet for ${esc(st.name)}: ${esc(j.status.error||"")}</span>`;
+    document.getElementById("cards").innerHTML="";return}
+  const d=j.data,c=d.current,sw=C('--swell'),se=C('--sea'),to=C('--total');
+  const t=new Date(d.chart_time),ageH=(Date.now()-t)/3600000;
+  document.getElementById("sub").innerHTML=esc(info.sub)+` · chart time ${t.toLocaleString('en-AU',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'})} WST`+
+    (ageH>1.5?` · <span class="err">${ageH.toFixed(1)} h old</span>`:"")+
+    (j.status.ok?"":` · <span class="err">last update failed: ${esc(j.status.error)}</span>`)+
+    ((d.warnings||[]).length?` · <span class="err">${esc(d.warnings.join("; "))}</span>`:"");
+  document.getElementById("src").href=d.source_page;
+  document.getElementById("acc").textContent=`±${d.chart_axes.m_per_px.toFixed(2)} m, ±${d.chart_axes.s_per_px.toFixed(2)} s on this chart`;
+  document.getElementById("cards").innerHTML=card("Swell",c.swell,sw)+card("Sea (wind waves)",c.sea,se)+
+    card("Total",{height_m:c.total.height_m,mean_period_s:c.total.mean_period_s},to);
+  const S=d.series,ks=[["Swell",sw],["Sea",se]],kt=[...ks,["Total",to]];
+  legend("leg1",kt);legend("leg2",kt);legend("leg3",ks);
+  chart("ch",S,[["swell_hs_m",sw],["sea_hs_m",se],["total_hs_m",to]],{});
+  const pmax=Math.max(16,Math.ceil(Math.max(...S.flatMap(r=>[r.swell_tm_s||0,r.total_tm_s||0]))/4)*4);
+  chart("cp",S,[["swell_tm_s",sw],["sea_tm_s",se],["total_tm_s",to]],{max:pmax,ticks:Array.from({length:pmax/4+1},(_,i)=>i*4),lab:v=>v});
+  const nm={0:"N",90:"E",180:"S",270:"W",360:"N"};
+  chart("cd",S,[["swell_dir_deg",sw],["sea_dir_deg",se]],{max:360,dots:true,h:190,ticks:[0,90,180,270,360],lab:v=>nm[v]});
+}
+async function refresh(){
+  try{const j=await getJSON("stations.json",10000);STATIONS=j.stations;DEFAULT=j.default||DEFAULT}
+  catch(e){document.getElementById("sub").innerHTML=`<span class="err">Could not load stations.json: ${esc(e)}</span>`;return}
+  const r=await resolveStation();
+  const choice=location.hash.slice(1)&&r.why==="link"?r.slug:(store.get("choice")||"auto");
+  fillPicker(STATIONS.some(s=>s.slug===choice)?choice:"auto");
+  const info=explain(r);setBanner(info.banner);
+  await showStation(r.slug,info);
+}
+document.getElementById("loc").addEventListener("change",e=>{
+  const v=e.target.value;store.set("choice",v);
+  history.replaceState(null,"",v==="auto"?location.pathname+location.search:"#"+v);
+  refresh();
+});
+document.getElementById("gps").addEventListener("click",()=>{
+  if(!navigator.geolocation){setBanner("This browser can't provide a device location.");return}
+  setBanner("Getting your location…");
+  navigator.geolocation.getCurrentPosition(p=>{
+    store.set("geo",{lat:p.coords.latitude,lon:p.coords.longitude,src:"gps",t:Date.now()});
+    store.set("choice","auto");history.replaceState(null,"",location.pathname+location.search);refresh();
+  },err=>setBanner(`Couldn't get your device location (${esc(err.message||err.code)}).`),
+  {enableHighAccuracy:false,timeout:15000,maximumAge:600000});
+});
+addEventListener("hashchange",refresh);
+refresh();setInterval(refresh,5*60*1000);
+let rz;addEventListener("resize",()=>{clearTimeout(rz);rz=setTimeout(()=>{if(CURRENT)refresh()},250)});
+</script></body></html>

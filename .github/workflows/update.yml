@@ -1,0 +1,77 @@
+# Fetches the DoT wave charts, updates site/ and publishes it to GitHub Pages.
+# Behaviour, limits and setup are documented in the capenat_waves.py docstring.
+name: Update wave data
+
+on:
+  schedule:
+    # DoT refreshes at about :25 and :55; run two minutes later. Cron minutes are the same in UTC and WST.
+    - cron: "27,57 * * * *"
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ["capenat_waves.py", "requirements.txt", ".github/workflows/update.yml"]
+
+# One run at a time, so two runs never push over each other.
+concurrency:
+  group: update-wave-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # commit site/ (keeps history between runs and counts as repo activity)
+      pages: write      # deploy to Pages
+      id-token: write   # required by deploy-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Fetch and parse charts
+        id: build
+        # Exit code 1 means every attempt failed. site/ is still updated so the page shows the error,
+        # and the run is marked failed afterwards so GitHub emails you.
+        run: python capenat_waves.py --out site || echo "failed=1" >> "$GITHUB_OUTPUT"
+
+      - name: Commit site/
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add site
+          if git diff --cached --quiet; then
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -q -m "Update wave data $(TZ=Australia/Perth date '+%Y-%m-%d %H:%M') WST"
+          git pull -q --rebase origin "${GITHUB_REF_NAME}"
+          git push -q origin "HEAD:${GITHUB_REF_NAME}"
+          echo "changed=1" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/configure-pages@v6
+        if: steps.commit.outputs.changed == '1' || github.event_name != 'schedule'
+
+      - uses: actions/upload-pages-artifact@v5
+        if: steps.commit.outputs.changed == '1' || github.event_name != 'schedule'
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v5
+        if: steps.commit.outputs.changed == '1' || github.event_name != 'schedule'
+
+      - name: Report fetch failure
+        if: steps.build.outputs.failed == '1'
+        run: |
+          echo "::error::All fetch attempts failed; see the 'Fetch and parse charts' step log."
+          exit 1
