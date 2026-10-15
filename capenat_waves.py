@@ -1166,7 +1166,7 @@ function fillPicker(sel){
   const el=document.getElementById("loc");
   const opt=(v,t)=>`<option value="${esc(v)}">${esc(t)}</option>`;
   el.innerHTML=opt("auto","Nearest to me (automatic)")+STATIONS.map(s=>{
-    const w=s.swell,t=!s.has_data?" (no data)":w&&w.height_m!=null?` · swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
+    const w=s.swell,t=!s.has_data?" (no data)":w&&w.height_m!=null?` · Swell ${fmt(w.height_m,1)} m${w.peak_period_s!=null?" "+Math.round(w.peak_period_s)+" s":""}`:"";
     return opt(s.slug,s.name+t)}).join("");
   el.value=sel;
 }
