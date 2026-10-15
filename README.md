@@ -28,7 +28,7 @@ Values are read from chart pixels, not from a data feed. Accuracy is about one c
 2. Go to Settings > Pages > Build and deployment, and set Source to **GitHub Actions**.
 3. Go to the Actions tab, open **Update wave data**, and click **Run workflow**.
 
-The site will be at `https://platima.github.io/WA_Surf_Data`.
+The site will be at https://platima.github.io/WA_Surf_Data.
 
 ## Running locally
 
