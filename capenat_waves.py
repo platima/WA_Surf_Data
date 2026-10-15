@@ -70,6 +70,8 @@ WEB PAGE
       the "geo" estimate and returns to automatic.
     IP-based locations on Australian mobile networks often resolve to a capital city (general knowledge,
     not measured), which is why the automatic choice shows a banner suggesting the precise option.
+    Starlink does the same: a connection in WA's South West resolved to Perth (see VERIFICATION), so the
+    automatic choice there is Cottesloe rather than Cape Naturaliste.
     The page calls get.geojs.io (and ipwho.is if that fails) from the visitor's browser, which sends those
     services the visitor's IP address; the footer says so. GeoJS states CORS support and "no rate limits
     (yet)" (geojs.io, checked 15 Oct 2026). ipwho.is terms were not checked (its site did not load).
@@ -217,7 +219,10 @@ VERIFICATION
     Naturaliste with the outside-WA banner, both lookups failing -> Cape Naturaliste with the "couldn't
     estimate" banner, stored choice -> that station, #geraldton link -> Geraldton, device location at
     Yallingup -> Cape Naturaliste (27 km). No script errors. Rendered at desktop and phone widths, light
-    and dark. Not yet tested on a real phone or against the live GeoJS service from an Australian IP.
+    and dark. Not yet tested on a real phone.
+    Live IP lookups, 15 Oct 2026, from a Starlink connection in WA's South West: GeoJS returned country_code
+    AU, region "Western Australia", city Perth (-31.95, 115.86) with access-control-allow-origin: *;
+    ipwho.is returned the same region and city. Both give Cottesloe (17 km) as the nearest station.
 
 FAILURE HANDLING
     - Each fetch reads the station page first for the current image links; if the page or an image fails,
