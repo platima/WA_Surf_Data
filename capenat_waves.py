@@ -50,7 +50,8 @@ FILES / ENDPOINTS (same paths on GitHub Pages and the local server)
                                               resulting m_per_px / s_per_px (resolution of this chart)
                   data.dial                 : detected dial centre, ring radii and s_per_px (null if not read)
                   data.warnings             : non-fatal problems, e.g. dial not read
-                  data.station, station_slug, lat, lon, source_page, notes
+                  data.station, station_slug, lat, lon, source, source_page, notes
+                  data.licence              : source data licence and attribution (see LICENCE)
     <slug>/history.json      hourly records kept beyond the 4-day window (default 60 days, --history-days)
     <slug>/healthz.json      that station's status object
 
@@ -76,6 +77,9 @@ WEB PAGE
     services the visitor's IP address; the footer says so. GeoJS states CORS support and "no rate limits
     (yet)" (geojs.io, checked 15 Oct 2026). ipwho.is terms were not checked (its site did not load).
     All localStorage access is wrapped so the page still works when storage is blocked.
+    The footer carries the source data attribution (see LICENCE) and a visitor counter: an image from
+    visitor-badge.laobi.icu (page_id platima.wa_surf_data_live), loaded without a referrer. Loading it sends
+    that service the visitor's IP address; the footer says so.
 
 REQUIREMENTS AND USAGE
     Python 3.9+, Pillow, numpy:  pip install pillow numpy
@@ -140,7 +144,7 @@ GITHUB PAGES
         if the schedule stops, re-enable it on the Actions tab.
       - DoT may treat GitHub's cloud IP ranges differently from a home connection (untested until the
         first run). A block would show as failed runs and errors on the page.
-      - Everything on the site is public, so the licensing note under LIMITS applies.
+      - Everything on the site is public, so the attribution under LICENCE must stay on the page.
       - One failing station marks the whole run failed, so a station that stays broken means an email
         every half hour until it is fixed or removed from the workflow with --stations.
       - Repository size grows with every data commit (not measured). Check with "git count-objects -vH"
@@ -248,8 +252,20 @@ LIMITS
       to use the same reference (inferred, not confirmed). No declination correction is applied.
     - peak_period_s (dial) and mean_period_s (chart) are different statistics; expect peak > mean.
     - "Nearest" is straight-line distance to the buoy, not to a surf break or along the coast.
-    - Licensing: DoT's archive data is CC BY 3.0 AU, but terms for these live charts were not found.
-      Check DoT's disclaimer and copyright page before exposing this publicly.
+
+LICENCE
+    Code: MIT (see the LICENSE file), copyright Platima. It does not cover the data in site/.
+    Data: the values in site/ are derived from DoT's charts. DoT's coastal data charts "Disclaimer and
+    copyright" page (transport.wa.gov.au/marine/charts-warnings-current-conditions/coastal-data-charts/
+    disclaimer-copyright, read 15 Oct 2026) says its coastal data information is available under CC BY 4.0,
+    which allows derivative works and commercial use with credit. It names the owner as the State of Western
+    Australia acting through the Department of Transport and Major Infrastructure (this docstring still says
+    DoT). The attribution is in the page footer, the README and raw.json ("source", "licence"): owner and
+    copyright, a link to the licence, a note that the values are modified (read from the chart images), and
+    a no-warranty statement.
+    The same page opens with a stricter disclaimer (no modification; reproduce DoT's no-warranty text)
+    headed "spatial data, nautical charts and Notices to Mariners". It is taken not to cover wave data
+    (inferred from the heading), but the no-warranty statement is included anyway. Ask DoT for certainty.
 """
 
 import argparse
@@ -705,8 +721,12 @@ def build(wave_img, pold_img, wdir_img, file_time, station):
         "station_slug": station["slug"],
         "lat": station["lat"],
         "lon": station["lon"],
-        "source": "WA Department of Transport wave buoy charts",
+        "source": "State of Western Australia acting through the Department of Transport and Major Infrastructure, "
+                  "wave buoy charts",
         "source_page": station["page"],
+        "licence": "Source data CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). These values are modified "
+                   "from the original (read from the chart images). The State of Western Australia gives no warranty "
+                   "about this information and accepts no liability for any loss arising from its use.",
         "chart_time": file_time.isoformat(),
         "latest_point_time": last_t.isoformat(),
         "chart_axes": axes,
@@ -954,13 +974,21 @@ a{color:inherit}
 <section><h3>Mean period (s)</h3><div class="leg" id="leg2"></div><svg class="chart" id="cp"></svg></section>
 <section><h3>Direction from (°)</h3><div class="leg" id="leg3"></div><svg class="chart" id="cd"></svg></section>
 <footer>
-<p>Read from WA Department of Transport chart images by pixel analysis. Accuracy is about one chart pixel
-(<span id="acc">see raw.json</span>), direction about ±2°. Directions per the DoT charts (labelled magnetic).
-Source: <a id="src" href="#">transport.wa.gov.au</a>. Data: <a id="rawlink" href="#">raw.json</a>,
+<p>Values are read from the source chart images by pixel analysis, not from a data feed. Accuracy is about one
+chart pixel (<span id="acc">see raw.json</span>), direction about ±2°. Directions per the source charts (labelled
+magnetic). Source: <a id="src" href="#">transport.wa.gov.au</a>. Data: <a id="rawlink" href="#">raw.json</a>,
 <a id="histlink" href="#">history.json</a>, <a href="stations.json">stations.json</a>.</p>
+<p>Original data © State of Western Australia acting through the Department of Transport and Major
+Infrastructure, licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The values
+here are modified from the original (read from its chart images). The State of Western Australia gives no
+warranty about the availability, accuracy, currency, completeness, quality or reliability of this information,
+and accepts no liability for any loss arising from its use.</p>
 <p>"Nearest to me" estimates your location from your IP address via get.geojs.io (ipwho.is as a fallback),
 or from your device if you press "Use precise location". Your choice and that estimate are kept only in
-this browser.</p>
+this browser. The visitor counter below is an image from visitor-badge.laobi.icu, which receives your IP
+address when it loads.</p>
+<p><img src="https://visitor-badge.laobi.icu/badge?page_id=platima.wa_surf_data_live" alt="Visitor count"
+height="20" referrerpolicy="no-referrer"></p>
 </footer>
 </main>
 <script>
