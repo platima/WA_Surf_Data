@@ -1004,6 +1004,7 @@ main{max-width:900px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin-bottom:12px}
 .picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
 .picker label{font-size:13px;color:var(--muted)}
+#gps{margin-left:auto}@media (max-width:520px){#loc{flex:1 1 auto}}
 select,button{font:inherit;font-size:14px;color:var(--fg);background:var(--card);border:1px solid var(--line);
 border-radius:8px;padding:6px 10px;max-width:100%}
 button{cursor:pointer}button:hover,select:hover{border-color:var(--muted)}
