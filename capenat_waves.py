@@ -190,7 +190,8 @@ CALIBRATION (measured from the live GIFs on 14 and 15 Oct 2026; constants below)
     Time axis (WAVE and WDIR): frame x 42..485, midnight gridlines x 152/263/374, 111 px per day.
     Height panel: frame rows 27 to 139 (112 px); value scale read from the axis labels each time.
     Mean period panel: frame rows 163 to 276 (113 px); value scale read from the axis labels each time.
-    Axis labels: columns 486..520, 8 px high glyphs, ink = mean RGB below 215.
+    Axis labels: columns 486..520, 8 px high glyphs, ink = mean RGB below 215. The text is (64,64,64),
+    anti-aliased with colour fringes, so GLYPHS holds thresholded bitmaps that depend on the white background.
     Direction history: rows 27 (N as 360) to 252 (N as 0), 0.625 px per degree.
     Dial: found per image (see METHOD). Seen on 15 Oct 2026: centre (261,217) and rings at about
     35/69/104/139/174 px at seven stations, (261,218) at Cottesloe, (289,252) with rings 39 to 193 px at
@@ -231,6 +232,13 @@ VERIFICATION
     Live IP lookups, 15 Oct 2026, from a Starlink connection in WA's South West: GeoJS returned country_code
     AU, region "Western Australia", city Perth (-31.95, 115.86) with access-control-allow-origin: *;
     ipwho.is returned the same region and city. Both give Cottesloe (17 km) as the nearest station.
+    Glyph "9", 15 Oct 2026: no wave chart had shown one (all nine stations that day, and all 99 raw.json
+    versions committed that day: height labels in steps of 0.25, 0.5 or 1 m, period labels 0 to 14 s in 2 s
+    steps). DoT's tide charts (coastal-data-charts/tide-data pages) draw axis labels in the same font, but on
+    a grey (244) background, so edge pixels fall on the other side of AXIS_LUM. Converting each tide pixel to
+    a white background with the blend v = bg - a * (bg - 64) (tide mean below about 206.3 counts as ink)
+    reproduced every GLYPHS entry 0 to 8 and "." exactly (2,437 glyphs on grey-background charts, one bitmap
+    per character), and all 36 real 9s ("0.9" on 17 charts, "9.0" on one) came out identical to the derived 9.
 
 FAILURE HANDLING
     - Each fetch reads the station page first for the current image links; if the page or an image fails,
@@ -243,9 +251,9 @@ FAILURE HANDLING
 LIMITS
     - Current heights come from the end of the height chart, not the text printed on the dial (the dial
       font is not templated). The two can disagree in DoT's own images (Cottesloe, see VERIFICATION).
-    - The glyph "9" had not appeared on any axis when GLYPHS was built; it is derived from "6" rotated 180
-      degrees. If that is wrong, a chart with a 9 on its axis fails with LayoutError (no wrong numbers) and
-      the log prints the glyph bitmap to add to GLYPHS.
+    - The glyph "9" has not yet appeared on a wave chart axis. It is "6" rotated 180 degrees, which matches
+      the real 9 on DoT's tide charts after allowing for their grey background (see VERIFICATION). Any glyph
+      that does not match still fails with LayoutError (no wrong numbers) and the log prints its bitmap.
     - The dial's outer ring is assumed to be 20 s (true on all nine on 15 Oct 2026). If DoT rescaled the
       dial but kept five evenly spaced rings, peak periods would be wrong without an error.
     - An arrow colour not in POLAR_SEA_RGBS / POLAR_SWELL_RGBS gives null for that arrow's peak period
@@ -347,7 +355,8 @@ P_TOP, P_BOT = 163, 276     # mean period panel frame rows
 AXIS_X0, AXIS_X1 = 486, 521  # right-hand axis label columns
 AXIS_LUM = 215               # pixels darker than this (mean RGB) count as label ink
 # Axis label glyphs (8 px high), collected from all nine DoT stations on 14 Oct 2026.
-# "9" had not appeared yet; it is derived as "6" rotated 180 degrees (unverified). Unknown glyphs raise LayoutError.
+# "9" has not appeared on a wave chart; it is "6" rotated 180 degrees, which matches the real 9 on DoT's tide charts
+# (see VERIFICATION). Unknown glyphs raise LayoutError.
 GLYPHS = {
     (".####.", "##....", "#.....", "#####.", "#...#.", "#...##", "##..#.", ".####."): "6",
     ("..", "..", "..", "..", "..", "..", "##", "##"): ".",
