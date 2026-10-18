@@ -110,11 +110,11 @@ REQUIREMENTS AND USAGE
     -v enables debug logging.
 
     --out options: --attempts (default 3) passes, --attempt-wait (default 60) seconds between passes,
-    --alert-hours (default 3, see FAILURE HANDLING).
+    --alert-hours (default off, see FAILURE HANDLING).
     Stations are fetched three at a time; a full run of nine takes about 15 s when DoT responds normally.
-    --out exit codes: 1 if there is an alert (a station failed to parse, or DoT has not served it for more
-    than --alert-hours), otherwise 0, including short DoT outages. Files are always written, with any error
-    in that station's raw.json and its last good data kept.
+    --out exit codes: 1 if there is an alert (a station failed to parse, or, only with --alert-hours, DoT
+    has not served it for longer than that), otherwise 0, including DoT outages. Files are always written,
+    with any error in that station's raw.json and its last good data kept.
 
     The server keeps --site-dir (default site/) updated and serves it; on start it logs browsable URLs.
     With the default --host 0.0.0.0 (all interfaces, not itself browsable) it lists 127.0.0.1 and the
@@ -160,10 +160,10 @@ GITHUB PAGES
         repository activity. The workflow's own commits are expected to count (inferred, not confirmed);
         if the schedule stops, re-enable it on the Actions tab.
       - DoT served GitHub's runners normally from the first run (15 Oct 2026). A later block would show as
-        DoT source errors on the page and, after --alert-hours, failed runs.
+        DoT source errors on the page, not as failed runs (see FAILURE HANDLING).
       - Everything on the site is public, so the attribution under LICENCE must stay on the page.
-      - While an alert lasts, every run fails, so expect an email every half hour until it clears or the
-        station is removed from the workflow with --stations.
+      - While an alert (a parse failure) lasts, every run fails, so expect an email every half hour until
+        it is fixed or the station is removed from the workflow with --stations. DoT outages do not email.
       - Repository size grows with every data commit (not measured). Check with "git count-objects -vH"
         on a fresh clone; lowering --history-days in the workflow reduces it.
 
@@ -264,10 +264,12 @@ FAILURE HANDLING
       (HTTP error, timeout, or the page lacks the chart links); the error names the page or file, e.g.
       "DoT chart DWN_WAVE.GIF returned HTTP 404 (the DoT page links to a missing file)". "parse": anything
       else, such as LayoutError, which usually means DoT changed the charts and this script needs updating.
-    - Alerts (healthz.json "alerts", --out exit code 1, failed workflow run and email): any parse failure,
-      or a source failure at a station with no successful update for more than --alert-hours (default 3).
-      Shorter DoT outages only show on the page (see WEB PAGE). Server mode retries every --retry minutes
-      after any failure.
+    - Alerts (healthz.json "alerts", --out exit code 1, failed workflow run and email): any parse failure.
+      DoT outages (source failures) only show on the page (see WEB PAGE) and in healthz.json "failed", since
+      DoT's data goes down often (about 36 h from 15 to 17 Oct 2026) and there is nothing to fix here.
+      --alert-hours H turns on alerts for a station DoT has not served for more than H hours; the workflow
+      does not use it (it used 3 h until 18 Oct 2026). Server mode retries every --retry minutes after any
+      failure.
     - Seen 15 Oct 2026 from about 15:30 WST: every DoT station page (wave and tide) linked to chart files
       that returned 404, including in a normal browser on DoT's own pages, while DoT's "swells comparative"
       charts still updated. Nothing in this script was wrong; it recovers on the first run after DoT does.
@@ -918,7 +920,10 @@ def _summary(store, station):
 
 
 def _alerts(stores, results, alert_hours, now):
-    """Failures worth a failed CI run: any parse error, or a source error once the last success is too old."""
+    """
+    Failures worth a failed CI run: any parse error. Source errors (DoT outages) only when alert_hours is set
+    and the last success is older than that; by default (None) they never alert.
+    """
     out = []
     for slug, res in results.items():
         st = stores[slug].status
@@ -926,6 +931,8 @@ def _alerts(stores, results, alert_hours, now):
             continue
         if st.get("error_kind") != "source":
             out.append(f"{slug}: {st.get('error')}")
+            continue
+        if alert_hours is None:
             continue
         last = st.get("last_success")
         age_h = (now - dt.datetime.fromisoformat(last)).total_seconds() / 3600 if last else None
@@ -935,7 +942,7 @@ def _alerts(stores, results, alert_hours, now):
     return out
 
 
-def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, workers=3, alert_hours=3.0):
+def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, workers=3, alert_hours=None):
     """
     One update of every station in slugs. Per station, reads the previous raw.json / history.json from
     out_dir/<slug>/ (so state survives between CI runs), fetches, and rewrites that station's files unless
@@ -987,7 +994,8 @@ def update_site(out_dir, slugs, history_days, attempts=3, attempt_wait=60, worke
     for a in alerts:
         log.error("alert: %s", a)
     if failed and not alerts:
-        log.info("failures are DoT source errors with data under %g h old; not alerting", alert_hours)
+        log.info("failures are DoT source errors%s; not alerting",
+                 f" with data under {alert_hours:g} h old" if alert_hours is not None else "")
     return failed, alerts
 
 
@@ -1478,8 +1486,9 @@ def main():
     ap.add_argument("--retry", type=int, default=5, help="server mode: minutes between retries after a failure")
     ap.add_argument("--attempts", type=int, default=3, help="--out mode: fetch attempts per station")
     ap.add_argument("--attempt-wait", type=int, default=60, help="--out mode: seconds between attempts")
-    ap.add_argument("--alert-hours", type=float, default=3.0,
-                    help="--out mode: exit 1 for DoT source errors only once a station has had no update this long")
+    ap.add_argument("--alert-hours", type=float, default=None,
+                    help="--out mode: also exit 1 when DoT has not served a station for this many hours "
+                         "(default: DoT outages never exit 1)")
     ap.add_argument("--history-days", type=int, default=60)
     ap.add_argument("--page", default=PAGE_URL, help="--once / --files: DoT station page (default Cape Naturaliste)")
     ap.add_argument("--once", action="store_true", help="fetch one station (--page) once, print JSON, exit")

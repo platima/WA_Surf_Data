@@ -39,9 +39,9 @@ jobs:
 
       - name: Fetch and parse charts
         id: build
-        # Exit code 1 is an alert: a chart failed to parse, or DoT has not served a station for over 3 h
-        # (docstring, FAILURE HANDLING). site/ is still updated so the page shows the error, and the run is
-        # marked failed afterwards so GitHub emails you. Shorter DoT outages exit 0 and only show on the page.
+        # Exit code 1 is an alert: a chart failed to parse, so DoT probably changed its charts and the script
+        # needs updating (docstring, FAILURE HANDLING). site/ is still updated so the page shows the error, and
+        # the run is marked failed afterwards so GitHub emails you. DoT outages exit 0 and only show on the page.
         run: python capenat_waves.py --out site || echo "failed=1" >> "$GITHUB_OUTPUT"
 
       - name: Commit site/
@@ -74,5 +74,5 @@ jobs:
       - name: Report alert
         if: steps.build.outputs.failed == '1'
         run: |
-          echo "::error::A chart failed to parse or a station has had no update for over 3 hours; see the 'alert:' lines in the 'Fetch and parse charts' step log."
+          echo "::error::A DoT chart failed to parse, so the script may need updating; see the 'alert:' lines in the 'Fetch and parse charts' step log."
           exit 1
