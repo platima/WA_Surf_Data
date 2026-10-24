@@ -1,1 +1,1 @@
-{"ok":true,"last_attempt":"2026-10-25T06:59:58.886020+08:00","last_success":"2026-10-25T06:59:58.886020+08:00","error":null,"error_kind":null,"etags":{"POLD":"\"639285081680347562\"","WAVE":"\"639285075661895208\"","WDIR":"\"639285081682848061\""}}
+{"ok":false,"last_attempt":"2026-10-25T07:32:21.511285+08:00","last_success":"2026-10-25T06:59:58.886020+08:00","error":"DoT's page says this station's wave data is temporarily unavailable","error_kind":"source","etags":{"POLD":"\"639285081680347562\"","WAVE":"\"639285075661895208\"","WDIR":"\"639285081682848061\""}}
