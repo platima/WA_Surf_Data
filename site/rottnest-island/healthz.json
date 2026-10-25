@@ -1,1 +1,1 @@
-{"ok":false,"last_attempt":"2026-10-25T23:06:23.801063+08:00","last_success":"2026-10-25T21:59:37.938896+08:00","error":"DoT station page could not be fetched: The read operation timed out","error_kind":"source","etags":{"POLD":"\"639285621847636476\"","WAVE":"\"639285615992215742\"","WDIR":"\"639285621850449038\""}}
+{"ok":true,"last_attempt":"2026-10-25T23:32:42.085675+08:00","last_success":"2026-10-25T23:32:42.085675+08:00","error":null,"error_kind":null,"etags":{"POLD":"\"639285675868480677\"","WAVE":"\"639285679022871312\"","WDIR":"\"639285675871293736\""}}
