@@ -63,6 +63,7 @@ FILES / ENDPOINTS (same paths on GitHub Pages and the local server)
 WEB PAGE
     Shows current swell/sea/total and 4-day height, period and direction charts for one station. Reloads
     stations.json and the station's raw.json every 5 minutes. Times in Australia/Perth (WST, UTC+8, no DST).
+    The Total card has no dial, because DoT publishes direction for sea and swell only.
     Hovering a chart (or tapping and dragging on a touch screen) shows the time (WST) and the values of the
     nearest hourly record, with a guide line and markers; on touch it stays until the next tap elsewhere.
     Flags data older than 1.5 h, failed updates and warnings. When the last update failed because DoT did
@@ -1176,14 +1177,16 @@ function dial(deg,col){
   `<g transform="rotate(${deg})"><line y1="-24" y2="16" stroke="${col}" stroke-width="3"/>
   <path d="M0 24 L-7 12 L7 12Z" fill="${col}"/></g>`)+"</svg>";
 }
-function card(title,c,col,old){
-  if(old)return `<div class="card">${dial(null,col)}<div><h2 style="color:${col}">${title}</h2>
+function card(title,c,col,old,noDial){
+  // noDial: DoT publishes no direction for this value, so keep the dial's space blank instead of an empty dial
+  const face=noDial?'<svg class="dial" viewBox="-32 -32 64 64"></svg>':dial(old?null:c.direction_deg,col);
+  if(old)return `<div class="card">${face}<div><h2 style="color:${col}">${title}</h2>
   <div class="big">–</div><div class="det">No current reading</div></div></div>`;
   const per=c.peak_period_s!=null?`${fmt(c.peak_period_s,1)}<small> s</small>`:"";
   const bits=[];
   if(c.direction)bits.push(`from ${c.direction} (${c.direction_deg}°)`);
   if(c.mean_period_s!=null)bits.push(`mean ${fmt(c.mean_period_s,1)} s`);
-  return `<div class="card">${dial(c.direction_deg,col)}<div><h2 style="color:${col}">${title}</h2>
+  return `<div class="card">${face}<div><h2 style="color:${col}">${title}</h2>
   <div class="big">${fmt(c.height_m,1)}<small> m</small> ${per}</div>
   <div class="det">${bits.join(" · ")}</div></div></div>`;
 }
@@ -1363,7 +1366,7 @@ async function showStation(slug,info){
   document.getElementById("src").href=d.source_page;
   document.getElementById("acc").textContent=`±${d.chart_axes.m_per_px.toFixed(2)} m, ±${d.chart_axes.s_per_px.toFixed(2)} s on this chart`;
   document.getElementById("cards").innerHTML=card("Swell",c.swell,sw,old)+card("Sea (wind waves)",c.sea,se,old)+
-    card("Total",{height_m:c.total.height_m,mean_period_s:c.total.mean_period_s},to,old);
+    card("Total",{height_m:c.total.height_m,mean_period_s:c.total.mean_period_s},to,old,true);
   const S=d.series,ks=[["Swell",sw],["Sea",se]],kt=[...ks,["Total",to]];
   legend("leg1",kt);legend("leg2",kt);legend("leg3",ks);
   const fm=v=>`${v.toFixed(2)} m`,fs=v=>`${v.toFixed(1)} s`,fd=v=>`${compass(v)} (${Math.round(v)}°)`;
