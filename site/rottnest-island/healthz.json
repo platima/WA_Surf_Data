@@ -1,1 +1,1 @@
-{"ok":true,"last_attempt":"2026-10-31T22:29:43.480276+08:00","last_success":"2026-10-31T22:29:43.480276+08:00","error":null,"error_kind":null,"etags":{"POLD":"\"639290823790977705\"","WAVE":"\"639290817775117778\"","WDIR":"\"639290823793321499\""}}
+{"ok":false,"last_attempt":"2026-10-31T23:01:53.217762+08:00","last_success":"2026-10-31T22:29:43.480276+08:00","error":"DoT chart RDW_POLD.GIF returned HTTP 404 (the DoT page links to a missing file)","error_kind":"source","etags":{"POLD":"\"639290823790977705\"","WAVE":"\"639290817775117778\"","WDIR":"\"639290823793321499\""}}
