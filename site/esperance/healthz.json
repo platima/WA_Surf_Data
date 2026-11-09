@@ -1,1 +1,1 @@
-{"ok":true,"last_attempt":"2026-11-10T05:59:40.284120+08:00","last_success":"2026-11-10T05:59:40.284120+08:00","error":null,"error_kind":null,"etags":{"POLD":"\"639298854688419332\"","WAVE":"\"639298863681123861\"","WDIR":"\"639298854694825823\""}}
+{"ok":false,"last_attempt":"2026-11-10T06:31:35.605793+08:00","last_success":"2026-11-10T05:59:40.284120+08:00","error":"DoT station page returned HTTP 403","error_kind":"source","etags":{"POLD":"\"639298854688419332\"","WAVE":"\"639298863681123861\"","WDIR":"\"639298854694825823\""}}
