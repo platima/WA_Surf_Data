@@ -1,1 +1,1 @@
-{"ok":false,"last_attempt":"2026-11-12T12:31:56.688669+08:00","last_success":"2026-11-12T12:00:12.585880+08:00","error":"DoT station page returned HTTP 502","error_kind":"source","etags":{"POLD":"\"639300798703583300\"","WAVE":"\"639300807694498019\"","WDIR":"\"639300798710146147\""}}
+{"ok":true,"last_attempt":"2026-11-12T12:59:43.378817+08:00","last_success":"2026-11-12T12:59:43.378817+08:00","error":null,"error_kind":null,"etags":{"POLD":"\"639300834699730830\"","WAVE":"\"639300843692936695\"","WDIR":"\"639300834705042784\""}}
