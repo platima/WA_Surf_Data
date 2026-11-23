@@ -142,6 +142,11 @@ GITHUB PAGES
     committed and deployed so the page shows the error. If the script exits 1 (an alert, see FAILURE
     HANDLING), the run is then marked failed, so GitHub's default notifications email the repo owner. The
     workflow also runs on manual dispatch and when the script, requirements or workflow change on main.
+    GitHub's own steps fail now and then: in Nov 2026, 31 runs failed in the Pages deploy ("Fetching
+    artifact metadata failed") and 3 in the push (Internal Server Error, all on 4 Nov), with DoT's data
+    fetched fine each time. So the push is tried up to three times (a third failure still fails the run,
+    since the data was not saved), and a failed deploy is retried once after 30 s; if the retry fails too,
+    the run passes with a warning, because site/ is already committed and the next run deploys it.
 
     One-time setup:
       1. Push these files to the main branch of a public repository.
@@ -164,7 +169,9 @@ GITHUB PAGES
         DoT source errors on the page, not as failed runs (see FAILURE HANDLING).
       - Everything on the site is public, so the attribution under LICENCE must stay on the page.
       - While an alert (a parse failure) lasts, every run fails, so expect an email every half hour until
-        it is fixed or the station is removed from the workflow with --stations. DoT outages do not email.
+        it is fixed or the station is removed from the workflow with --stations. DoT outages and failed
+        Pages deploys do not email. To stop all workflow emails, untick Email under Actions at
+        github.com/settings/notifications (this covers every repository on the account).
       - Repository size grows with every data commit (not measured). Check with "git count-objects -vH"
         on a fresh clone; lowering --history-days in the workflow reduces it.
 
